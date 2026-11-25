@@ -25,7 +25,22 @@ proposal. A PIN or proposal-supplied medical reference is not remote authority.
 4. Keep the provisioning flag false until all gates and end-to-end tests pass.
    Use only synthetic content and the test key for the first publication.
 
-## Trusted service for publishing from XRS
+## Decision update: no-VPS audit
+
+The owner rejects opening GitHub for sign-in even once per XRS session. Device
+Flow could support a no-VPS GitHub App client with memory-only expiring user
+access tokens and explicit Environment review through the normal API, but that
+UX is not acceptable under the current requirement. Do not implement or enable
+it as if approved. See [the audit and A/B/C comparison](ARCHITECTURE_NO_VPS_RU.md).
+
+A managed serverless broker is a fallback for separate design approval, not an
+already selected deployment or an excuse to bypass the owner reviewer. It needs
+an agreed external identity provider and a valid authorized reviewer context;
+an installation token alone cannot stand in for the required human. A one-time
+GitHub authorization/bootstrap may still be necessary. No new keys or credentials
+have been provisioned by this audit.
+
+## Trusted service for publishing from XRS (conditional fallback)
 
 Owner must select an HTTPS service host, identity provider and authorized medical
 editor identities. Suggested contract: OIDC Authorization Code with PKCE in the
