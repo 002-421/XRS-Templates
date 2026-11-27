@@ -1,3 +1,8 @@
+> Исторический документ прежнего подписанного формата. Текущее решение владельца
+> использует прямые GitHub Releases, HTTPS и SHA-256 без Root/Ed25519, USB,
+> provisioning и Environment approval при публикации. Актуальный процесс — README.md.
+> Описанные ниже ключи и flags не являются требованиями штатной работы XRS 0.4.86.
+
 # Protected publisher handoff — owner decision required
 
 ## Current full-cycle integration (2026-11-27)
