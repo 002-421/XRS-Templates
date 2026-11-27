@@ -19,11 +19,11 @@ async function receiveRequest({ env = process.env, api, now = Date.now(), direct
   api ??= (method, endpoint, body) => gh.api(method, `/repos/${r.REPOSITORY}${endpoint}`, body);
   const fetched = await r.readRequest(api, { requestId: env.REQUEST_ID, commit: env.REQUEST_COMMIT, hash: env.REQUEST_SHA256, channel: env.CATALOG_CHANNEL, now });
   const loaded = await loadSources(), trust = p.parse(await fs.readFile(path.join(directory, 'trust/root.json')));
-  p.validateRoot(trust, now);
+  p.validateRoot(trust, now);const roots=await require('./lib/root-chain.cjs').readRootHistory(trust,path.join(directory,'trust'));
   let sources = loaded.sources, previousRaw = null;
   try {
     previousRaw = await fs.readFile(path.join(directory, 'previous-manifest.json'));
-    sources = (await applyPublishedSources(previousRaw, trust, env.CATALOG_CHANNEL, sources, loaded.baseline)).sources;
+    sources = (await applyPublishedSources(previousRaw, trust, env.CATALOG_CHANNEL, sources, loaded.baseline,'0.4.86',roots)).sources;
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
   r.bindCatalog(fetched.request, previousRaw);
   const ajv = await schemas();

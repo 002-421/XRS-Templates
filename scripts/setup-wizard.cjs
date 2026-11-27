@@ -378,6 +378,12 @@ async function createTrustRootPullRequest(root, state, stateFile, output = proce
     try { existing = protocol.parse(Buffer.from(current, 'utf8')); protocol.validateRoot(existing); }
     catch { throw new SetupBlocked('PUBLIC_ROOT_INVALID'); }
     if (protocol.canonical(existing) !== protocol.canonical(root)) throw new SetupBlocked('PUBLIC_ROOT_MISMATCH');
+    try {
+      const anchorResponse=ghJson([`/repos/${REPOSITORY}/contents/trust/anchor.json?ref=main`]);
+      const chainResponse=ghJson([`/repos/${REPOSITORY}/contents/trust/root-chain.json?ref=main`]);
+      const anchor=protocol.parse(Buffer.from(anchorResponse.content,'base64')),chain=protocol.parse(Buffer.from(chainResponse.content,'base64'));
+      if(protocol.canonical(require('./lib/root-chain.cjs').verifyRootChain(anchor,chain))!==protocol.canonical(existing))throw new SetupBlocked('ROOT_CHAIN_MISMATCH');
+    }catch(error){throw new SetupBlocked(error.code==='ROOT_CHAIN_MISMATCH'?error.code:'PUBLIC_ROOT_CHAIN_UNAVAILABLE',LINKS.branches);}
     state.rootPublished = true;
     await saveState(stateFile, state);
     output.write('Открытый корень в main совпадает с локально созданным.\n');
@@ -427,7 +433,9 @@ async function createTrustRootPullRequest(root, state, stateFile, output = proce
     } else {
       await fs.mkdir(path.dirname(rootFile), { recursive: true });
       await writeExclusive(rootFile, protocol.bytes(root), 0o644);
-      run('git', ['add', 'trust/root.json'], { cwd: worktree, code: 'GIT_ADD_FAILED' });
+      await writeExclusive(path.join(worktree,'trust','anchor.json'),protocol.bytes(root),0o644);
+      await writeExclusive(path.join(worktree,'trust','root-chain.json'),protocol.bytes({schemaVersion:1,type:'xrs-template-root-chain',envelopes:[]}),0o644);
+      run('git', ['add', 'trust/root.json','trust/anchor.json','trust/root-chain.json'], { cwd: worktree, code: 'GIT_ADD_FAILED' });
       run('git', ['-c', 'user.name=XRS Templates Setup', '-c', 'user.email=xrs-templates-setup@users.noreply.github.com', 'commit', '-m', `Add XRS template trust root v${root.version}`], { cwd: worktree, code: 'GIT_COMMIT_FAILED' });
       run('git', ['push', '-u', 'origin', branch], { cwd: worktree, code: 'GIT_BRANCH_PUSH_FAILED' });
     }

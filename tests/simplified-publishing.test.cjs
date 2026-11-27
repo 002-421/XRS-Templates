@@ -35,7 +35,10 @@ function apiFixture(data) {
     calls.push({ method, endpoint, body });
     if (endpoint === '/user') return { login: r.OWNER, id: r.OWNER_ID, type: 'User' };
     const route = endpoint.replace(`/repos/${r.REPOSITORY}`, '');
+    if(method==='DELETE'&&route.startsWith('/git/refs/heads/xrs-submissions/')){exists=false;return null;}
+    if(method==='DELETE'&&route.startsWith('/git/refs/heads/xrs-dispatches/')){dispatchMarker=null;return null;}
     if (route === '') return { full_name: r.REPOSITORY, permissions: { push: true } };
+    if (route === '/actions/variables/TEMPLATE_PUBLICATION_PROVISIONED') return {name:'TEMPLATE_PUBLICATION_PROVISIONED',value:'true'};
     if (method === 'POST') {
       if (route === '/git/blobs') return { sha: blob };
       if (route === '/git/trees') return { sha: tree };
@@ -165,7 +168,7 @@ test('gh transport uses stdin, handles HTTP 204, strips debug and does not expos
   assert.equal(calls[0].options.env.GH_DEBUG, undefined);
   assert.match(calls[0].options.input, /synthetic-content/);
   const failed = createGh({ spawn: () => ({ status: 1, stderr: 'HTTP 403 synthetic-sensitive-value', stdout: '' }) });
-  assert.throws(() => failed.api('GET', '/user'), error => error.code === 'GITHUB_REQUEST_FAILED' && error.httpStatus === 403 && !String(error).includes('sensitive'));
+  assert.throws(() => failed.api('GET', '/user'), error => error.code === 'GITHUB_FORBIDDEN' && error.httpStatus === 403 && !String(error).includes('sensitive'));
 });
 
 test('administrative stdio commands require public-data consent and reject arbitrary API or shell operations', async () => {
@@ -203,9 +206,26 @@ test('signed publisher consumes a data request without incoming/ changes and rej
   assert.equal(manifest.catalogVersion, '1.0.0'); assert.equal(manifest.packages.length, 1);
   const entry = manifest.packages[0], zip = await fs.readFile(path.join(directory, 'out', `${after.id}-${after.templateVersion}.xrszip`));
   assert.deepEqual(p.readPackage(zip, entry, keys.root, { channel: 'test', appVersion: '0.4.86', allowedImages: baseline.allowedImages }), after);
+  const staged={...transport.staged,request:data};
+  transport.publisher.trust=keys.root;
+  transport.publisher.download=async url=>url.endsWith('/manifest.json')?await fs.readFile(path.join(directory,'out/manifest.json')):zip;
+  assert.equal((await transport.publisher.verifyPublication(staged)).status,'published');
+  const download=transport.publisher.download;transport.publisher.download=async()=>Buffer.from('corrupt');
+  await assert.rejects(()=>transport.publisher.verifyPublication(staged),/JSON|NONCANONICAL/);
+  transport.publisher.download=download;
+  assert.equal((await transport.publisher.cleanup(staged)).status,'cleaned');
+  assert.equal((await transport.publisher.cleanup(staged)).status,'cleaned','terminal cleanup is idempotent and keeps signed audit proof');
   assert.equal((await fs.readdir(path.join(directory, 'incoming'))).length, 0);
   for (const wrongRole of ['test', 'root']) {
     assert.throws(() => execFileSync(process.execPath, ['scripts/publish.cjs'], { cwd: directory, env: { ...env, CATALOG_CHANNEL: 'stable', WORKING_CATALOG_APPROVAL: 'true', TEMPLATE_SIGNING_PRIVATE_KEY: keys.generated[wrongRole].privatePem }, stdio: 'pipe' }), error => String(error.stderr).includes('KEY'));
   }
   assert.throws(() => approvalRecord([{ state: 'approved', environments: [{ name: 'catalog-test' }], user: { login: 'synthetic-other', id: 321 } }], env), /PUBLISHER_IDENTITY/);
+});
+
+test('versioned stdio envelopes bind operation IDs and reject incompatible versions without privileged calls',async()=>{
+ const {handleEnvelope}=require('../scripts/publisher-admin.cjs');
+ const operationId=crypto.randomUUID(),envelope={protocolVersion:1,operationId,command:{operation:'authorize'},context:{trust:null,appVersion:'0.4.86'}};
+ let calls=0;const publisher={authorize:async()=>{calls++;return {login:r.OWNER,id:r.OWNER_ID};}};
+ assert.equal((await handleEnvelope({...envelope,protocolVersion:99},publisher)).error,'PUBLISHER_PROTOCOL_VERSION');assert.equal(calls,0);
+ const result=await handleEnvelope(envelope,publisher);assert.equal(result.operationId,operationId);assert.equal(result.status,'VALIDATED');assert.equal(calls,1);
 });

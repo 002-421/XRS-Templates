@@ -8,7 +8,7 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{1
 const COMMIT = /^[a-f0-9]{40}$/;
 const HASH = /^[a-f0-9]{64}$/;
 
-function validateRequest(request, { now = Date.now(), channel } = {}) {
+function validateRequest(request, { now = Date.now(), channel,expiry=true } = {}) {
   p.keys(request, ['schemaVersion', 'type', 'requestId', 'channel', 'createdAt', 'expiresAt', 'publisher', 'expectedCatalog', 'proposals']);
   p.check(request.schemaVersion === 1 && request.type === 'xrs-template-publication-request', 'REQUEST_SCHEMA');
   p.check(UUID.test(request.requestId), 'REQUEST_ID');
@@ -16,7 +16,7 @@ function validateRequest(request, { now = Date.now(), channel } = {}) {
   p.keys(request.publisher, ['login', 'id']);
   p.check(request.publisher.login === OWNER && request.publisher.id === OWNER_ID, 'PUBLISHER_IDENTITY');
   for (const name of ['createdAt', 'expiresAt']) p.check(typeof request[name] === 'string' && Number.isFinite(Date.parse(request[name])) && new Date(request[name]).toISOString() === request[name], 'REQUEST_DATE');
-  p.check(Date.parse(request.createdAt) <= now + 300000 && Date.parse(request.expiresAt) > now && Date.parse(request.expiresAt) > Date.parse(request.createdAt) && Date.parse(request.expiresAt) - Date.parse(request.createdAt) <= 86400000, 'REQUEST_EXPIRED');
+  p.check(Date.parse(request.createdAt) <= now + 300000 && (!expiry||Date.parse(request.expiresAt) > now) && Date.parse(request.expiresAt) > Date.parse(request.createdAt) && Date.parse(request.expiresAt) - Date.parse(request.createdAt) <= 86400000, 'REQUEST_EXPIRED');
   p.keys(request.expectedCatalog, ['version', 'sequence', 'manifestSha256']);
   const expected = request.expectedCatalog;
   p.version(expected.version);
@@ -24,6 +24,7 @@ function validateRequest(request, { now = Date.now(), channel } = {}) {
   p.check(Array.isArray(request.proposals) && request.proposals.length > 0 && request.proposals.length <= 50, 'REQUEST_COUNT');
   p.check(p.bytes(request).length <= p.LIMITS.json, 'SIZE');
   p.check(new Set(request.proposals.map(row => row.template?.id)).size === request.proposals.length, 'DUPLICATE_ID');
+  p.check(request.proposals.filter(row=>row.template?.retired===true).length<=1,'MASS_REMOVAL_BLOCKED');
   for (const proposal of request.proposals) p.check(proposal.channel === request.channel && proposal.medicalApproval?.approved === true, 'APPROVAL_REQUIRED');
   return request;
 }
@@ -53,7 +54,7 @@ function nextCatalogVersion(request) {
   return p.version(parts.join('.'));
 }
 
-async function readRequest(api, { requestId, commit, hash, channel, now }) {
+async function readRequest(api, { requestId, commit, hash, channel, now,allowExpired=false }) {
   p.check(COMMIT.test(commit) && HASH.test(hash), 'REQUEST_BINDING');
   const ref = await api('GET', `/git/ref/heads/xrs-submissions/${validateId(requestId)}`);
   p.check(ref.ref === reference(requestId) && ref.object?.type === 'commit' && ref.object.sha === commit, 'REQUEST_REF_CHANGED');
@@ -67,7 +68,7 @@ async function readRequest(api, { requestId, commit, hash, channel, now }) {
   p.check(blob.sha === entry.sha && blob.encoding === 'base64' && blob.size === entry.size && typeof blob.content === 'string' && blob.content.length <= p.LIMITS.json * 2, 'REQUEST_BLOB');
   const bytes = Buffer.from(blob.content, 'base64');
   p.check(bytes.length === entry.size && p.sha256(bytes) === hash, 'REQUEST_HASH');
-  const request = validateRequest(p.parse(bytes), { channel, now });
+  const request = validateRequest(p.parse(bytes), { channel, now,expiry:!allowExpired });
   p.check(request.requestId === requestId, 'REQUEST_BINDING');
   return { request, raw: bytes };
 }

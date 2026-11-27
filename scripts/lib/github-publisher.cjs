@@ -5,6 +5,8 @@ const { spawnSync } = require('node:child_process');
 const p = require('./template-protocol.cjs');
 const r = require('./publication-request.cjs');
 const { validateContent } = require('./publication-validation.cjs');
+const { fetchBytes } = require('./template-transport.cjs');
+const {readAuthenticatedPackage}=require('./historical-package.cjs');
 
 function createGh({ spawn = spawnSync, env = process.env } = {}) {
   const safeEnv = { ...env };
@@ -15,7 +17,7 @@ function createGh({ spawn = spawnSync, env = process.env } = {}) {
     if (result.error || result.status !== 0) {
       const error = Object.assign(new Error('GITHUB_REQUEST_FAILED'), { code: 'GITHUB_REQUEST_FAILED' });
       const status = /HTTP (\d{3})/.exec(result.stderr ?? '');
-      if (status) error.httpStatus = Number(status[1]);
+      if (status){error.httpStatus = Number(status[1]);if(error.httpStatus===401)error.code='GITHUB_UNAUTHORIZED';else if(error.httpStatus===403)error.code='GITHUB_FORBIDDEN';else if(error.httpStatus===429)error.code='GITHUB_RATE_LIMIT';error.message=error.code;}
       throw error;
     }
     if (!result.stdout.trim()) return null; // A successful workflow dispatch returns HTTP 204.
@@ -24,7 +26,8 @@ function createGh({ spawn = spawnSync, env = process.env } = {}) {
   return {
     status: () => execute(['auth', 'status', '--hostname', 'github.com', '--active', '--json', 'hosts']),
     api: (method, endpoint, body) => {
-      p.check(['GET', 'POST'].includes(method) && /^\/(?:user$|repos\/002-421\/XRS-Templates(?:\/|$))/.test(endpoint) && !endpoint.includes('..') && !endpoint.includes('#'), 'GITHUB_ENDPOINT');
+      p.check(['GET', 'POST', 'DELETE'].includes(method) && /^\/(?:user$|repos\/002-421\/XRS-Templates(?:\/|$))/.test(endpoint) && !endpoint.includes('..') && !endpoint.includes('#'), 'GITHUB_ENDPOINT');
+      if(method==='DELETE')p.check(new RegExp('^/repos/002-421/XRS-Templates/git/refs/heads/xrs-(?:submissions|dispatches)/[a-f0-9-]{36}$').test(endpoint),'GITHUB_ENDPOINT');
       const args = ['api', '--hostname', 'github.com', '--method', method, endpoint];
       if (body !== undefined) args.push('--input', '-');
       return execute(args, body === undefined ? undefined : JSON.stringify(body));
@@ -43,8 +46,9 @@ function verifyCredentialStatus(status, { platform = process.platform, env = pro
 }
 
 class GitHubPublisher {
-  constructor({ gh = createGh(), platform = process.platform, env = process.env, now = () => Date.now(), validate = validateContent } = {}) {
-    this.gh = gh; this.platform = platform; this.env = env; this.now = now; this.validate = validate;
+  constructor({ gh = createGh(), platform = process.platform, env = process.env, now = () => Date.now(), validate, trust=null,roots=[],download=fetchBytes, appVersion='0.4.86' } = {}) {
+    this.gh = gh; this.platform = platform; this.env = env; this.now = now; this.trust=trust;this.roots=roots;this.download=download;this.appVersion=appVersion;
+    this.validate = validate??(request=>validateContent(request,{trust:this.trust,roots:this.roots,appVersion:this.appVersion}));
   }
   api(method, path, body) { return this.gh.api(method, `/repos/${r.REPOSITORY}${path}`, body); }
   async authorize() {
@@ -54,6 +58,11 @@ class GitHubPublisher {
     const repo = await this.api('GET', '');
     p.check(repo.full_name === r.REPOSITORY && repo.permissions?.push === true, 'PUBLISHER_PERMISSION');
     return { login: user.login, id: user.id };
+  }
+  async capabilities(){
+    const publisher=await this.authorize();let stable=false;
+    try{const variable=await this.api('GET','/actions/variables/TEMPLATE_PUBLICATION_PROVISIONED');stable=variable.name==='TEMPLATE_PUBLICATION_PROVISIONED'&&variable.value==='true';}catch(error){if(error.httpStatus!==404)throw error;}
+    return {status:'authorized',publisher,stableEnabled:stable};
   }
   async stage(request) {
     request = p.parse(p.bytes(request)); // Immutable snapshot before asynchronous validation.
@@ -86,6 +95,7 @@ class GitHubPublisher {
     await this.authorize();
     const { request } = await r.readRequest(this.api.bind(this), { requestId: staged.requestId, commit: staged.commit, hash: staged.hash, now: this.now() });
     p.check(confirmed === true && (request.channel !== 'stable' || stableConfirmed === true), 'PUBLICATION_CONFIRMATION_REQUIRED');
+    if(request.channel==='stable')p.check((await this.capabilities()).stableEnabled,'STABLE_PUBLICATION_LOCKED');
     const main = await this.api('GET', '/git/ref/heads/main');
     p.check(r.COMMIT.test(main.object?.sha), 'WORKFLOW_SHA');
     // Do not retry an ambiguous dispatch automatically: status() locates the run.
@@ -125,6 +135,57 @@ class GitHubPublisher {
     p.check(target?.current_user_can_approve === true && Number.isSafeInteger(target.environment.id), 'ENVIRONMENT_REVIEW_UNAVAILABLE');
     await this.api('POST', `/actions/runs/${current.runId}/pending_deployments`, { environment_ids: [target.environment.id], state: 'approved', comment: `XRS request ${request.requestId}, sha256 ${staged.hash}` });
     return { status: 'approved-awaiting-publication', runId: current.runId, requestId: request.requestId };
+  }
+  async inspect(channel) {
+    await this.authorize();p.check(['test','stable'].includes(channel),'CHANNEL');
+    p.check(this.trust,'TRUST_NOT_CONFIGURED');p.validateRoot(this.trust,this.now());
+    const releases=[];for(let page=1;page<=20;page++){
+      const rows=await this.api('GET',`/releases?per_page=100&page=${page}`);p.check(Array.isArray(rows),'GITHUB_RESPONSE_INVALID');releases.push(...rows);if(rows.length<100)break;p.check(page<20,'RELEASE_SEARCH_LIMIT');
+    }
+    const prefix=channel==='test'?'test-catalog-v':'catalog-v';
+    const rows=releases.filter(row=>!row.draft&&new RegExp('^'+prefix+'\\d+\\.\\d+\\.\\d+$').test(row.tag_name));rows.sort((a,b)=>p.compare(b.tag_name.slice(prefix.length),a.tag_name.slice(prefix.length)));
+    if(!rows.length)return {status:'inspected',channel,version:'0.0.0',sequence:0,manifestSha256:null,count:0,revisions:[],publishedAt:null};
+    const url=`https://github.com/${r.REPOSITORY}/releases/download/${rows[0].tag_name}/manifest.json`;
+    const raw=await this.download(url,p.LIMITS.json,{allowedPrefixes:[`https://github.com/${r.REPOSITORY}/releases/download/`]});
+    const manifest=p.verify(p.parse(raw),this.trust,channel);p.validateManifest(manifest,{channel,appVersion:this.appVersion,now:this.now()});
+    return {status:'inspected',channel,version:manifest.catalogVersion,sequence:manifest.sequence,manifestSha256:p.sha256(raw),count:manifest.packages.length,publishedAt:manifest.publishedAt,revisions:manifest.revisions??manifest.packages.map(x=>({...x,status:x.action==='remove'?'Revoked':'Active'})),publication:manifest.publication??null};
+  }
+  async templateSource(channel,id,version){
+    p.string(id,120);p.check(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/.test(id),'ID');if(version)p.version(version);
+    const catalog=await this.inspect(channel),{sources,baseline}=await require('../validate.cjs').loadSources();
+    const entry=catalog.revisions.find(row=>row.templateId===id&&(version?row.templateVersion===version:row.status==='Active'));
+    if(!entry){const builtin=sources.get(id);p.check(builtin&&(!version||version===builtin.templateVersion),'REVISION_NOT_FOUND');return {status:'inspected',template:builtin,catalog};}
+    p.check(entry.status!=='Revoked','REVISION_REVOKED');
+    const bytes=await this.download(entry.url,entry.size,{allowedPrefixes:[`https://github.com/${r.REPOSITORY}/releases/download/`]});
+    return {status:'inspected',template:readAuthenticatedPackage(bytes,entry,this.trust,this.roots,{channel,appVersion:this.appVersion,allowedImages:baseline.allowedImages}),catalog};
+  }
+  async verifyPublication(staged) {
+    await this.authorize();p.check(this.trust,'TRUST_NOT_CONFIGURED');p.validateRoot(this.trust,this.now());
+    let request;try{({request}=await r.readRequest(this.api.bind(this),{requestId:staged.requestId,commit:staged.commit,hash:staged.hash,now:this.now(),allowExpired:true}));}catch(error){if(error.httpStatus!==404||!staged.request)throw error;request=r.validateRequest(staged.request,{now:this.now(),expiry:false});p.check(request.requestId===staged.requestId&&p.sha256(p.bytes(request))===staged.hash,'REQUEST_BINDING');}
+    const version=r.nextCatalogVersion(request),tag=`${request.channel==='test'?'test-':''}catalog-v${version}`;
+    const prefix=`https://github.com/${r.REPOSITORY}/releases/download/`;
+    const raw=await this.download(prefix+tag+'/manifest.json',p.LIMITS.json,{allowedPrefixes:[prefix]});
+    const manifest=p.verify(p.parse(raw),this.trust,request.channel);p.validateManifest(manifest,{channel:request.channel,appVersion:this.appVersion,now:this.now()});
+    p.check(manifest.catalogVersion===version&&manifest.sequence===request.expectedCatalog.sequence+1&&manifest.publication?.id===request.requestId&&manifest.publication.requestSha256===staged.hash&&manifest.publication.previousVersion===request.expectedCatalog.version&&manifest.publication.previousManifestSha256===request.expectedCatalog.manifestSha256,'PUBLICATION_BINDING');
+    const {baseline}=await require('../validate.cjs').loadSources();
+    for(const proposal of request.proposals){
+      const entry=manifest.packages.find(row=>row.templateId===proposal.template.id);p.check(entry&&entry.templateVersion===proposal.template.templateVersion,'PUBLICATION_BINDING');
+      const bytes=await this.download(entry.url,entry.size,{allowedPrefixes:[prefix]});
+      const template=readAuthenticatedPackage(bytes,entry,this.trust,this.roots,{channel:request.channel,appVersion:this.appVersion,allowedImages:baseline.allowedImages});
+      p.check(p.canonical(template)===p.canonical(proposal.template),'PUBLICATION_BINDING');
+    }
+    return {status:'published',requestId:request.requestId,channel:request.channel,catalogVersion:version,manifestSha256:p.sha256(raw),publishedAt:manifest.publishedAt,changed:request.proposals.length,url:`https://github.com/${r.REPOSITORY}/releases/tag/${tag}`};
+  }
+  async cleanup(staged) {
+    const verified=await this.verifyPublication(staged);
+    // Signed publication metadata and immutable packages retain the audit proof.
+    // Only exact terminal request refs may be removed, never workflow/tag history.
+    for(const kind of ['submissions','dispatches']){
+      let ref;try{ref=await this.api('GET',`/git/ref/heads/xrs-${kind}/${staged.requestId}`);}catch(error){if(error.httpStatus===404)continue;throw error;}
+      p.check(ref.object?.sha===staged.commit,'REQUEST_REF_CHANGED');
+      await this.api('DELETE',`/git/refs/heads/xrs-${kind}/${staged.requestId}`);
+    }
+    return {...verified,status:'cleaned'};
   }
 }
 
