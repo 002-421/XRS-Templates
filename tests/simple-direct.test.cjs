@@ -17,7 +17,7 @@ async function fixture(){
   if(method==='PATCH'&&route.startsWith('/releases/')){const r=releases.find(r=>r.id===Number(route.slice('/releases/'.length)));Object.assign(r,body);if(failAfterPublish){failAfterPublish=false;throw Object.assign(Error('GITHUB_UNAVAILABLE'),{code:'GITHUB_UNAVAILABLE'});}return {...r};}
   throw Error('UNEXPECTED_GITHUB_ROUTE');
  },upload:async(tag,file)=>{const r=releases.find(r=>r.tag_name===tag),name=require('node:path').basename(file);assert.ok(r.draft);assert.ok(!r.assets.some(a=>a.name===name));const bytes=await fs.readFile(file);r.assets.push({name,size:bytes.length,digest:'sha256:'+p.sha256(bytes),bytes});}};
- const download=async url=>{const part=url.slice(c.PREFIX.length),slash=part.indexOf('/'),tag=part.slice(0,slash),name=part.slice(slash+1),release=releases.find(r=>r.tag_name===tag&&!r.draft),asset=release?.assets.find(a=>a.name===name);if(!asset)throw missing();return asset.bytes;};
+ const download=async url=>{if(url.includes('/latest/download/')){const r=releases.filter(r=>!r.draft).at(-1),asset=r?.assets.find(a=>a.name==='catalog-manifest.json');if(!asset)throw missing();return asset.bytes;}const part=url.slice(c.PREFIX.length),slash=part.indexOf('/'),tag=part.slice(0,slash),name=part.slice(slash+1),release=releases.find(r=>r.tag_name===tag&&!r.draft),asset=release?.assets.find(a=>a.name===name);if(!asset)throw missing();return asset.bytes;};
  const publisher=new SimplePublisher({gh,download,loadSources:async()=>data,platform:'win32',env:{}});
  return {data,publisher,calls,releases,tags,failPublished:()=>{failAfterPublish=true;},deny:()=>{deny=true;}};
 }
