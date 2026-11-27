@@ -6,21 +6,18 @@ param(
 $ErrorActionPreference = 'Stop'
 
 try {
-  Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
-  $acl = Get-Acl -LiteralPath $Directory
-  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  $allowSids = @(
-    foreach ($rule in $acl.Access) {
-      if ($rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow) {
-        $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
-      }
-    }
-  )
-  $unexpected = @($allowSids | Where-Object { $_ -ne $currentSid -and $_ -ne 'S-1-5-18' })
+  $currentAccount = (& whoami.exe).Trim()
+  $lines = @(& icacls.exe $Directory 2>&1 | ForEach-Object { [string]$_ })
+  if ($LASTEXITCODE -ne 0) { throw 'ICACLS_READ_FAILED' }
+  $aceLines = @($lines | Where-Object { $_ -match '^\s+[^:]+:\(' })
+  $currentLine = @($aceLines | Where-Object { $_ -match [regex]::Escape($currentAccount) -and $_ -match '\(F\)' })
+  $systemLine = @($aceLines | Where-Object { $_ -match '(?i)S-1-5-18|SYSTEM|СИСТЕМ' -and $_ -match '\(F\)' })
+  $unexpected = @($aceLines | Where-Object { $_ -notmatch [regex]::Escape($currentAccount) -and $_ -notmatch '(?i)S-1-5-18|SYSTEM|СИСТЕМ' })
+  $inherited = @($aceLines | Where-Object { $_ -match '\(I\)' })
   $diagnostic = [ordered]@{
-    protected = [bool]($acl.AreAccessRulesProtected)
-    currentAccountAllowed = [bool]($allowSids -contains $currentSid)
-    systemAllowed = [bool]($allowSids -contains 'S-1-5-18')
+    protected = [bool]($inherited.Count -eq 0)
+    currentAccountAllowed = [bool]($currentLine.Count -gt 0)
+    systemAllowed = [bool]($systemLine.Count -gt 0)
     unexpectedAllowCount = [int]$unexpected.Count
   }
   Write-Output ('XRS_ACL_DIAG:' + (ConvertTo-Json -InputObject $diagnostic -Compress))
@@ -31,7 +28,7 @@ try {
   exit 4
 }
 catch {
-  $errorId = ($_.FullyQualifiedErrorId -split ',')[0]
+  $errorId = if ($_.Exception.Message -match '^[A-Z0-9_]+$') { $_.Exception.Message } else { ($_.FullyQualifiedErrorId -split ',')[0] }
   $diagnostic = [ordered]@{ powershellExitCode = 5; diagnosticAvailable = $false; errorId = $errorId }
   Write-Output ('XRS_ACL_DIAG:' + (ConvertTo-Json -InputObject $diagnostic -Compress))
   exit 5
