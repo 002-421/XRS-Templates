@@ -12,12 +12,15 @@ try {
   $aceLines = @($lines | Where-Object { $_ -match '^\s+[^:]+:\(' })
   $currentLine = @($aceLines | Where-Object { $_ -match [regex]::Escape($currentAccount) -and $_ -match '\(F\)' })
   $systemLine = @($aceLines | Where-Object { $_ -match '(?i)S-1-5-18|SYSTEM|СИСТЕМ' -and $_ -match '\(F\)' })
+  $systemPrincipalLine = @($aceLines | Where-Object { $_ -match '(?i)S-1-5-18|SYSTEM|СИСТЕМ' })
   $unexpected = @($aceLines | Where-Object { $_ -notmatch [regex]::Escape($currentAccount) -and $_ -notmatch '(?i)S-1-5-18|SYSTEM|СИСТЕМ' })
   $inherited = @($aceLines | Where-Object { $_ -match '\(I\)' })
   $diagnostic = [ordered]@{
     protected = [bool]($inherited.Count -eq 0)
     currentAccountAllowed = [bool]($currentLine.Count -gt 0)
     systemAllowed = [bool]($systemLine.Count -gt 0)
+    systemAceSeen = [bool]($systemPrincipalLine.Count -gt 0)
+    systemAceFullCount = [int]$systemLine.Count
     unexpectedAllowCount = [int]$unexpected.Count
   }
   Write-Output ('XRS_ACL_DIAG:' + (ConvertTo-Json -InputObject $diagnostic -Compress))

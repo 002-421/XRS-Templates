@@ -173,6 +173,8 @@ function verifyPrivateDirectoryAcl(directory, spawn = spawnSync) {
           protected: typeof parsed.protected === 'boolean' ? parsed.protected : null,
           currentAccountAllowed: typeof parsed.currentAccountAllowed === 'boolean' ? parsed.currentAccountAllowed : null,
           systemAllowed: typeof parsed.systemAllowed === 'boolean' ? parsed.systemAllowed : null,
+          systemAceSeen: typeof parsed.systemAceSeen === 'boolean' ? parsed.systemAceSeen : null,
+          systemAceFullCount: Number.isInteger(parsed.systemAceFullCount) ? parsed.systemAceFullCount : null,
           unexpectedAllowCount: Number.isInteger(parsed.unexpectedAllowCount) ? parsed.unexpectedAllowCount : null,
           diagnosticAvailable: parsed.diagnosticAvailable === false ? false : true,
           errorId: typeof parsed.errorId === 'string' && /^[A-Za-z0-9_]+$/.test(parsed.errorId) ? parsed.errorId : null,

@@ -56,6 +56,6 @@ jobs:
         run: |
           if (Test-Path windows-setup-diagnostic.json) {
             $d = Get-Content -Raw windows-setup-diagnostic.json | ConvertFrom-Json
-            $safe = [ordered]@{ powershellExitCode = $d.powershellExitCode; exitCode = $d.exitCode; powershellError = $d.powershellError; protected = $d.protected; currentAccountAllowed = $d.currentAccountAllowed; systemAllowed = $d.systemAllowed; unexpectedAllowCount = $d.unexpectedAllowCount; diagnosticAvailable = $d.diagnosticAvailable; errorId = $d.errorId; errorCode = $d.errorCode; icaclsApplied = $d.icaclsApplied }
+            $safe = [ordered]@{ powershellExitCode = $d.powershellExitCode; exitCode = $d.exitCode; powershellError = $d.powershellError; protected = $d.protected; currentAccountAllowed = $d.currentAccountAllowed; systemAllowed = $d.systemAllowed; systemAceSeen = $d.systemAceSeen; systemAceFullCount = $d.systemAceFullCount; unexpectedAllowCount = $d.unexpectedAllowCount; diagnosticAvailable = $d.diagnosticAvailable; errorId = $d.errorId; errorCode = $d.errorCode; icaclsApplied = $d.icaclsApplied }
             Write-Output "::error title=Sanitized Windows ACL diagnostic::$($safe | ConvertTo-Json -Compress)"
           }
