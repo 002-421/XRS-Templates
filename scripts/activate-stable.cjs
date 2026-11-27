@@ -1,4 +1,5 @@
 'use strict';
+if(require.main===module){console.error('LEGACY_SIGNED_ACTIVATION_RETIRED: use XRS upload');process.exitCode=1;return;}
 // Explicit owner-only, one-time post-acceptance action. Never called by XRS or CI.
 const fs=require('node:fs/promises'),path=require('node:path');
 const p=require('./lib/template-protocol.cjs'),core=require('./lib/setup-core.cjs');
