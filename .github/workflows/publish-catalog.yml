@@ -43,10 +43,12 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run validate
-      - name: Require provisioned protected environment
+      - name: Require channel-specific provisioning gate
         env:
-          PROVISIONED: ${{ vars.TEMPLATE_PUBLICATION_PROVISIONED }}
-        run: test "$PROVISIONED" = 'true'
+          CATALOG_CHANNEL: ${{ inputs.channel }}
+          TEMPLATE_TEST_PUBLICATION_PROVISIONED: ${{ vars.TEMPLATE_TEST_PUBLICATION_PROVISIONED }}
+          TEMPLATE_PUBLICATION_PROVISIONED: ${{ vars.TEMPLATE_PUBLICATION_PROVISIONED }}
+        run: node scripts/check-provisioning.cjs
   publish:
     needs: validate
     runs-on: ubuntu-latest

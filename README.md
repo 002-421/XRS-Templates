@@ -55,3 +55,45 @@ instances. Test content must stay in the isolated test channel.
 
 See [Provisioning](PROVISIONING.md), [Security](SECURITY.md), and
 [Administrator guide](ADMIN_GUIDE_RU.md).
+
+## Windows setup wizard
+
+On Windows 11 with Node.js 24+ and the official GitHub CLI installed, run
+`Setup-XRS-Templates.cmd`. The wizard uses `gh auth login --web`; it never asks
+for a GitHub password. It verifies repository admin access, `main` branch
+protection, required `validate` status, the three existing protected Environments,
+their owner reviewer and their `main` deployment policy. An API 403 is a stop
+condition with a link to the relevant GitHub settings; the wizard does not edit
+protection.
+
+The wizard asks for the explicit phrase `CREATE THREE KEYS` before it generates
+three independent Ed25519 key pairs. It stores only the test and Stable private
+keys in an owner-only Windows ACL directory outside the repository. The root
+private key is written only into a passphrase-encrypted backup on a different
+USB/SD/MMC medium; Windows disk metadata must confirm it is a distinct physical
+disk from the local key directory. The wizard reads the backup back and verifies
+the key ID. Test and Stable
+Environment secrets are sent with `gh secret set` on stdin, never as arguments or
+temporary transfer files. After GitHub confirms each secret exists, its temporary
+local private-key file is deleted; a missing remote secret after that point is a
+manual recovery blocker, not a reason to silently generate a replacement.
+Secret values are not displayed or logged. Existing secrets are never overwritten
+automatically.
+
+The public `trust/root.json` is added on a separate branch and pull request.
+The wizard never writes to `main`, never merges, and never sets
+`TEMPLATE_PUBLICATION_PROVISIONED=true`. After the owner merges the root PR, a
+second run can enable only `TEMPLATE_TEST_PUBLICATION_PROVISIONED` following an
+explicit confirmation. The publisher workflow keeps the Stable gate independent;
+it can be activated only after test acceptance and owner review.
+
+The wizard records non-secret progress under `%LOCALAPPDATA%\XRS-Templates-Setup`
+so it can resume without generating replacement keys. If artifacts are partial
+or do not match, it stops for owner review. The root private key is not placed in
+Git, Actions Secrets, releases, or XRS. No production keys are generated merely
+by building or testing this project.
+
+The wizard provisions GitHub signing material; it does not itself publish a
+catalog or certify client installation. Authenticated root delivery/rotation and
+revocation, plus two independent Windows XRS installations, remain required
+before enabling the Stable channel.
