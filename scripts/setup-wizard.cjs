@@ -160,7 +160,26 @@ function privateDirectoryAcl(directory, runCommand = run) {
 function verifyPrivateDirectoryAcl(directory, spawn = spawnSync) {
   const script = path.join(__dirname, 'verify-windows-acl.ps1');
   const result = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script, '-Directory', directory], { encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024 });
-  if (result.error || result.status !== 0 || !String(result.stdout ?? '').includes('XRS_ACL_OK')) throw new SetupBlocked('PRIVATE_ACL_VERIFY_FAILED');
+  if (result.error || result.status !== 0 || !String(result.stdout ?? '').includes('XRS_ACL_OK')) {
+    const reportLine = String(result.stdout ?? '').split(/\r?\n/).find(line => line.startsWith('XRS_ACL_DIAG:'));
+    let diagnostic = null;
+    if (reportLine) {
+      try {
+        const parsed = JSON.parse(reportLine.slice('XRS_ACL_DIAG:'.length));
+        diagnostic = {
+          protected: typeof parsed.protected === 'boolean' ? parsed.protected : null,
+          currentAccountAllowed: typeof parsed.currentAccountAllowed === 'boolean' ? parsed.currentAccountAllowed : null,
+          systemAllowed: typeof parsed.systemAllowed === 'boolean' ? parsed.systemAllowed : null,
+          unexpectedAllowCount: Number.isInteger(parsed.unexpectedAllowCount) ? parsed.unexpectedAllowCount : null,
+          diagnosticAvailable: parsed.diagnosticAvailable === false ? false : true,
+          errorId: typeof parsed.errorId === 'string' && /^[A-Za-z0-9_]+$/.test(parsed.errorId) ? parsed.errorId : null,
+        };
+      } catch { diagnostic = { diagnosticAvailable: false }; }
+    }
+    const error = new SetupBlocked('PRIVATE_ACL_VERIFY_FAILED');
+    error.safeDiagnostic = diagnostic ?? { diagnosticAvailable: false, powershellError: Boolean(result.error), exitCode: Number.isInteger(result.status) ? result.status : null };
+    throw error;
+  }
   return true;
 }
 

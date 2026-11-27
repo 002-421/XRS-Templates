@@ -35,7 +35,7 @@ test('icacls applies a protected ACL on a temporary directory', windowsOnly, asy
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-fixture-'));
   try {
     try { privateDirectoryAcl(directory); }
-    catch (error) { await writeDiagnostic({ errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
+    catch (error) { await writeDiagnostic({ ...(error.safeDiagnostic ?? {}), errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
     await writeDiagnostic({ icaclsApplied: true });
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
@@ -46,7 +46,7 @@ test('PowerShell Get-Acl confirms only current account and SYSTEM are allowed', 
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-check-'));
   try {
     try { privateDirectoryAcl(directory); }
-    catch (error) { await writeDiagnostic({ errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
+    catch (error) { await writeDiagnostic({ ...(error.safeDiagnostic ?? {}), errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
     const script = path.resolve(__dirname, '../scripts/verify-windows-acl.ps1');
     const checkResult = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script, '-Directory', directory], {
       encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
