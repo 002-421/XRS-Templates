@@ -9,7 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { privateDirectoryAcl, verifyRemovableBackupMedia, SetupBlocked } = require('../scripts/setup-wizard.cjs');
 const core = require('../scripts/lib/setup-core.cjs');
 
-const windowsOnly = { skip: process.platform !== 'win32' };
+const windowsOnly = { skip: process.platform !== 'win32' || process.env.XRS_WINDOWS_INTEGRATION !== '1' };
 
 function powershell(script) {
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {

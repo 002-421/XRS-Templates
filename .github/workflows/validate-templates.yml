@@ -27,6 +27,22 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run validate
+      - name: Run Windows launcher integration test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="Windows command launcher" tests/setup-windows.integration.test.cjs
+      - name: Run Windows PowerShell and ACL integration test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="PowerShell executes" tests/setup-windows.integration.test.cjs
+      - name: Run missing USB-media integration test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="absent removable USB" tests/setup-windows.integration.test.cjs
+      - name: Run Windows path validation test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="Windows path policy" tests/setup-windows.integration.test.cjs
       - name: Launch Windows setup command in non-provisioning preflight mode
         shell: cmd
         run: Setup-XRS-Templates.cmd --preflight-only
