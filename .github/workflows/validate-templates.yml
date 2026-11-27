@@ -50,9 +50,12 @@ jobs:
       - name: Launch Windows setup command in non-provisioning preflight mode
         shell: cmd
         run: Setup-XRS-Templates.cmd --preflight-only
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: windows-setup-diagnostics
-          path: windows-setup-diagnostic.json
-          if-no-files-found: ignore
+      - name: Report sanitized Windows ACL diagnostic on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path windows-setup-diagnostic.json) {
+            $d = Get-Content -Raw windows-setup-diagnostic.json | ConvertFrom-Json
+            $safe = [ordered]@{ powershellExitCode = $d.powershellExitCode; protected = $d.protected; currentAccountAllowed = $d.currentAccountAllowed; systemAllowed = $d.systemAllowed; unexpectedAllowCount = $d.unexpectedAllowCount; diagnosticAvailable = $d.diagnosticAvailable }
+            Write-Output "::error title=Sanitized Windows ACL diagnostic::$($safe | ConvertTo-Json -Compress)"
+          }
