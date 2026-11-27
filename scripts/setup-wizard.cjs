@@ -153,7 +153,10 @@ function privateDirectoryAcl(directory, runCommand = run) {
   // explicit defaults before granting access to the owner and SYSTEM.
   runCommand('icacls', [directory, '/reset', '/T', '/C'], { code: 'PRIVATE_ACL_RESET_FAILED' });
   runCommand('icacls', [directory, '/inheritance:r', '/T', '/C'], { code: 'PRIVATE_ACL_INHERITANCE_FAILED' });
-  runCommand('icacls', [directory, '/grant:r', `${account}:(OI)(CI)F`, '/grant:r', '*S-1-5-18:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
+  runCommand('icacls', [directory, '/grant:r', `${account}:(OI)(CI)F`, '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
+  // Keep SYSTEM's full-control ACE in a separate non-replacing operation;
+  // a second /grant:r invocation can leave only the last principal granted.
+  runCommand('icacls', [directory, '/grant', '*S-1-5-18:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_SYSTEM_GRANT_FAILED' });
   verifyPrivateDirectoryAcl(directory);
 }
 

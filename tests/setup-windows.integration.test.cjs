@@ -42,7 +42,7 @@ test('icacls applies a protected ACL on a temporary directory', windowsOnly, asy
   }
 });
 
-test('PowerShell Get-Acl confirms only current account and SYSTEM are allowed', windowsOnly, async () => {
+test('PowerShell ACL verifier confirms only current account and SYSTEM are allowed', windowsOnly, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-check-'));
   try {
     try { privateDirectoryAcl(directory); }

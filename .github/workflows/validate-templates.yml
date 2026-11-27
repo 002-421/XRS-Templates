@@ -38,7 +38,7 @@ jobs:
       - name: Run PowerShell ACL verification test
         env:
           XRS_WINDOWS_INTEGRATION: '1'
-        run: node --test --test-name-pattern="PowerShell Get-Acl confirms" tests/setup-windows.integration.test.cjs
+        run: node --test --test-name-pattern="PowerShell ACL verifier confirms" tests/setup-windows.integration.test.cjs
       - name: Run missing USB-media integration test
         env:
           XRS_WINDOWS_INTEGRATION: '1'
