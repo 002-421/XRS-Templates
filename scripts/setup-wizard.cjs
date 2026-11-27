@@ -149,7 +149,19 @@ function setupPreflight({ platform = process.platform, release = os.release(), n
 
 function privateDirectoryAcl(directory, runCommand = run) {
   const account = runCommand('whoami', [], { code: 'WINDOWS_ACCOUNT_UNKNOWN' });
-  runCommand('icacls', [directory, '/inheritance:r', '/grant:r', `${account}:(OI)(CI)F`, '/grant:r', '*S-1-5-18:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
+  // Called only on newly-created empty directories. Reset inherited and
+  // explicit defaults before granting access to the owner and SYSTEM.
+  runCommand('icacls', [directory, '/reset', '/T', '/C'], { code: 'PRIVATE_ACL_RESET_FAILED' });
+  runCommand('icacls', [directory, '/inheritance:r', '/T', '/C'], { code: 'PRIVATE_ACL_INHERITANCE_FAILED' });
+  runCommand('icacls', [directory, '/grant:r', `${account}:(OI)(CI)F`, '/grant:r', '*S-1-5-18:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
+  verifyPrivateDirectoryAcl(directory);
+}
+
+function verifyPrivateDirectoryAcl(directory, spawn = spawnSync) {
+  const script = path.join(__dirname, 'verify-windows-acl.ps1');
+  const result = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script, '-Directory', directory], { encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024 });
+  if (result.error || result.status !== 0 || !String(result.stdout ?? '').includes('XRS_ACL_OK')) throw new SetupBlocked('PRIVATE_ACL_VERIFY_FAILED');
+  return true;
 }
 
 function verifyRemovableBackupMedia(keyDirectory, backupDirectory, spawn = spawnSync) {
@@ -239,6 +251,10 @@ async function recoverUnrecordedKeySetup(paths, prompts, base, stateFile) {
   if (artifacts.some(Boolean) && !artifacts.every(Boolean)) throw new SetupBlocked('PARTIAL_KEY_SETUP_REQUIRES_OWNER_REVIEW');
   if (!artifacts.every(Boolean)) return null;
 
+  verifyPrivateDirectoryAcl(paths.keyDirectory);
+  verifyPrivateDirectoryAcl(paths.backupDirectory);
+  verifyPrivateDirectoryAcl(base);
+
   let root, testPem, stablePem;
   try {
     root = protocol.parse(await fs.readFile(files.root));
@@ -258,8 +274,6 @@ async function recoverUnrecordedKeySetup(paths, prompts, base, stateFile) {
   catch { throw new SetupBlocked('ROOT_BACKUP_RECOVERY_FAILED'); }
   if (protocol.keyId(require('node:crypto').createPublicKey(rootPem).export({ type: 'spki', format: 'pem' })) !== ids.root) throw new SetupBlocked('ROOT_BACKUP_RECOVERY_MISMATCH');
   const backupBytes = await fs.readFile(files.backup);
-  privateDirectoryAcl(paths.keyDirectory);
-  privateDirectoryAcl(base);
   const state = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -321,6 +335,7 @@ function showBlocker(error, output = process.stdout) {
   if (error.code === 'NODE_24_REQUIRED') output.write('Установите Node.js 24 LTS: https://nodejs.org/\n');
   if (error.code === 'WINDOWS_11_REQUIRED') output.write('Этот мастер запускается только в Windows 11.\n');
   if (error.code === 'BACKUP_MUST_BE_SEPARATE_REMOVABLE_MEDIA') output.write('Root backup разрешён только на отдельном USB/SD/MMC-носителе, физически отличном от системного диска. Подключите носитель и повторите запуск.\n');
+  if (error.code === 'PRIVATE_ACL_VERIFY_FAILED') output.write('Проверка ACL выявила недопустимые права или файловую систему без поддержки ACL. Используйте NTFS и папку только с доступом владельца и SYSTEM.\n');
 }
 
 async function createTrustRootPullRequest(root, state, stateFile, output = process.stdout) {
@@ -443,6 +458,9 @@ async function runWizard({ platform = process.platform, env = process.env, input
     let testPem;
     let stablePem;
     if (state?.root && state?.keyIds && state?.keyDirectory === paths.keyDirectory) {
+      verifyPrivateDirectoryAcl(base);
+      verifyPrivateDirectoryAcl(paths.keyDirectory);
+      verifyPrivateDirectoryAcl(paths.backupDirectory);
       root = state.root;
       protocol.validateRoot(root);
       const backup = await fs.readFile(path.join(paths.backupDirectory, 'root-v1.xrskey')).catch(() => null);
@@ -477,11 +495,15 @@ async function runWizard({ platform = process.platform, env = process.env, input
         const pass1 = await prompts.hidden('Пароль шифрования root backup (не менее 14 символов, не записывается): ');
         const pass2 = await prompts.hidden('Повторите пароль backup: ');
         if (pass1 !== pass2) throw new SetupBlocked('BACKUP_PASSPHRASE_MISMATCH');
+        if (await fs.stat(base).catch(() => null)) verifyPrivateDirectoryAcl(base);
+        else {
+          await fs.mkdir(base, { recursive: true });
+          privateDirectoryAcl(base);
+        }
         await fs.mkdir(parent, { recursive: true });
         await fs.mkdir(paths.keyDirectory, { recursive: false });
-        const account = run('whoami', [], { code: 'WINDOWS_ACCOUNT_UNKNOWN' });
         // ACLs are applied before any private material touches disk.
-        run('icacls', [paths.keyDirectory, '/inheritance:r', '/grant:r', `${account}:(OI)(CI)F`, '/grant:r', '*S-1-5-18:(OI)(CI)F'], { code: 'PRIVATE_ACL_FAILED' });
+        privateDirectoryAcl(paths.keyDirectory);
         const material = core.makeKeySet();
         root = material.root;
         testPem = material.generated.test.privatePem;
@@ -491,8 +513,8 @@ async function runWizard({ platform = process.platform, env = process.env, input
         await writeExclusive(path.join(paths.keyDirectory, 'stable-signing.pem'), stablePem);
 
         await fs.mkdir(paths.backupDirectory, { recursive: false });
+        privateDirectoryAcl(paths.backupDirectory);
         const encrypted = core.encryptRootBackup(material.generated.root.privatePem, pass1);
-        run('icacls', [paths.backupDirectory, '/inheritance:r', '/grant:r', `${account}:(OI)(CI)F`, '/grant:r', '*S-1-5-18:(OI)(CI)F'], { code: 'BACKUP_ACL_FAILED' });
         const backupFile = path.join(paths.backupDirectory, 'root-v1.xrskey');
         await writeExclusive(backupFile, encrypted);
         const readback = await fs.readFile(backupFile);
@@ -514,8 +536,6 @@ async function runWizard({ platform = process.platform, env = process.env, input
           rootPullRequest: null,
           rootPublished: false,
         };
-        await fs.mkdir(base, { recursive: true });
-        privateDirectoryAcl(base);
         await saveState(stateFile, state);
         output.write(`Созданы отдельные ключи. Зашифрованный root backup проверен: ${backupFile}\n`);
       }
