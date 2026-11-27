@@ -78,6 +78,12 @@ test('real proposal validation runs before any public data upload', async () => 
   assert.equal(f.calls.some(call => call.method === 'POST'), false);
 });
 
+test('privacy validation covers approval references and summaries before public staging',async()=>{
+ const {sources,baseline}=await loadSources(),before=sources.values().next().value,after=structuredClone(before);after.templateVersion='0.0.2';after.title+=' Synthetic';
+ const proposal=makeProposal(before,after,'SYNTHETIC ONLY','SYNTHETIC ONLY',{channel:'test',allowedImages:baseline.allowedImages}),ajv=await schemas();
+ for(const variant of [{...proposal,summary:'Contact synthetic-person@example.invalid'},{...proposal,medicalApproval:{approved:true,reference:'Иванов Иван Иванович'}}])await assert.rejects(()=>validateProposal(p.bytes(variant),sources,baseline,ajv),/POSSIBLE_SECRET_OR_PERSONAL_DATA/);
+});
+
 test('persistent administrator auth accepts Windows keyring and rejects plaintext, env tokens, wrong identities and JSON auth errors', async () => {
   assert.equal(verifyCredentialStatus(keyring(), { platform: 'win32', env: {} }).login, r.OWNER);
   for (const tokenSource of ['GH_TOKEN', 'C:\\Users\\fixture\\hosts.yml', 'oauth_token']) {

@@ -46,7 +46,7 @@ async function handleEnvelope(envelope,publisher) {
 }
 if (require.main === module) (async () => {
   const chunks = []; let length = 0;
-  for await (const chunk of process.stdin) { length += chunk.length; p.check(length <= p.LIMITS.json + 1024, 'SIZE'); chunks.push(chunk); }
+  for await (const chunk of process.stdin) { length += chunk.length; p.check(length <= p.LIMITS.json + 64000, 'SIZE'); chunks.push(chunk); }
   let command; try { command = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { p.fail('JSON'); }
   const result = await handleEnvelope(command);
   process.stdout.write(JSON.stringify(result) + '\n');
