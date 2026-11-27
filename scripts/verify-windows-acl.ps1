@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 try {
+  Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
   $acl = Get-Acl -LiteralPath $Directory
   $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   $allowSids = @(

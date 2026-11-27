@@ -157,6 +157,7 @@ function verifyRemovableBackupMedia(keyDirectory, backupDirectory, spawn = spawn
   const backupDrive = path.win32.parse(path.win32.resolve(backupDirectory)).root.slice(0, 1);
   const script = [
     "$ErrorActionPreference='Stop'",
+    "Import-Module Storage -ErrorAction Stop",
     `$keyPartition=Get-Partition -DriveLetter '${keyDrive}'`,
     `$backupPartition=Get-Partition -DriveLetter '${backupDrive}'`,
     '$keyDisk=Get-Disk -Number $keyPartition.DiskNumber',
