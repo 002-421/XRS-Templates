@@ -18,6 +18,10 @@ function powershell(script) {
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
+async function writeDiagnostic(value) {
+  if (process.env.GITHUB_WORKSPACE) await fs.writeFile(path.join(process.env.GITHUB_WORKSPACE, 'windows-setup-diagnostic.json'), JSON.stringify(value, null, 2));
+}
+
 test('Windows command launcher runs preflight without authenticating or provisioning', windowsOnly, () => {
   const result = spawnSync('cmd.exe', ['/d', '/s', '/c', 'Setup-XRS-Templates.cmd --preflight-only'], {
     cwd: path.resolve(__dirname, '..'), encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
@@ -30,7 +34,9 @@ test('Windows command launcher runs preflight without authenticating or provisio
 test('icacls applies a protected ACL on a temporary directory', windowsOnly, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-fixture-'));
   try {
-    privateDirectoryAcl(directory);
+    try { privateDirectoryAcl(directory); }
+    catch (error) { await writeDiagnostic({ errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
+    await writeDiagnostic({ icaclsApplied: true });
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
@@ -39,7 +45,8 @@ test('icacls applies a protected ACL on a temporary directory', windowsOnly, asy
 test('PowerShell Get-Acl confirms only current account and SYSTEM are allowed', windowsOnly, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-check-'));
   try {
-    privateDirectoryAcl(directory);
+    try { privateDirectoryAcl(directory); }
+    catch (error) { await writeDiagnostic({ errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
     const script = path.resolve(__dirname, '../scripts/verify-windows-acl.ps1');
     const checkResult = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script, '-Directory', directory], {
       encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
@@ -51,7 +58,7 @@ test('PowerShell Get-Acl confirms only current account and SYSTEM are allowed', 
       try { diagnostic = { powershellExitCode: check.status, ...JSON.parse(reportLine.slice('XRS_ACL_DIAG:'.length)) }; }
       catch { diagnostic = { powershellExitCode: check.status, diagnosticAvailable: false }; }
     }
-    if (process.env.GITHUB_WORKSPACE) await fs.writeFile(path.join(process.env.GITHUB_WORKSPACE, 'windows-setup-diagnostic.json'), JSON.stringify(diagnostic, null, 2));
+    await writeDiagnostic(diagnostic);
     assert.equal(check.status, 0, `PowerShell failed (${check.status}): ${check.stderr || check.stdout}`);
     assert.match(check.stdout, /XRS_ACL_OK/, `ACL validation did not report success: ${check.stdout}`);
   } finally {
