@@ -4,9 +4,12 @@ Development infrastructure for independent, signed medical template updates.
 **Not enabled in production XRS. No signed Stable catalog has been published.**
 
 The [Simplified Publishing v1 audit and proposed PR-free data flow](SIMPLIFIED_PUBLISHING_V1_AUDIT_RU.md)
-records the current infrastructure and the owner decision needed for administrator
-authentication. That design is not implemented or activated. The existing
-PR-based procedure below still describes the current code.
+records the current infrastructure and the accepted one-time administrator login.
+The [implementation report](SIMPLIFIED_PUBLISHING_V1_IMPLEMENTATION_RU.md) documents
+the candidate data-request backend and its tests. The XRS UI adapter and real
+GitHub-to-Windows acceptance are pending. The existing PR-based procedure below
+remains the deployed procedure on main; this branch also accepts immutable data
+requests without committing medical revisions to main. Neither channel is activated.
 
 Sources are sanitized snapshots of the already bundled XRS 0.4.83 catalog. They
 retain permanent template IDs, service-field IDs, formatting and the existing
