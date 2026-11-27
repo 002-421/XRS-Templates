@@ -7,16 +7,19 @@ $ErrorActionPreference = 'Stop'
 
 try {
   $currentAccount = (& whoami.exe).Trim()
-  $lines = @(& icacls.exe $Directory 2>&1 | ForEach-Object { [string]$_ })
-  if ($LASTEXITCODE -ne 0) { throw 'ICACLS_READ_FAILED' }
-  $aceLines = @($lines | Where-Object { $_ -match '^\s+[^:]+:\(' })
-  $currentLine = @($aceLines | Where-Object { $_ -match [regex]::Escape($currentAccount) -and $_ -match '\(F\)' })
-  $systemLine = @($aceLines | Where-Object { $_ -match '(?i)S-1-5-18|SYSTEM|СИСТЕМ' -and $_ -match '\(F\)' })
-  $systemPrincipalLine = @($aceLines | Where-Object { $_ -match '(?i)S-1-5-18|SYSTEM|СИСТЕМ' })
-  $unexpected = @($aceLines | Where-Object { $_ -notmatch [regex]::Escape($currentAccount) -and $_ -notmatch '(?i)S-1-5-18|SYSTEM|СИСТЕМ' })
-  $inherited = @($aceLines | Where-Object { $_ -match '\(I\)' })
+  $directoryInfo = New-Object System.IO.DirectoryInfo($Directory)
+  $acl = $directoryInfo.GetAccessControl()
+  $currentSid = ([System.Security.Principal.NTAccount]::new($currentAccount)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+  $systemSid = 'S-1-5-18'
+  $aces = @($acl.Access)
+  $allowAces = @($aces | Where-Object { $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow })
+  $sidForAce = { param($ace) try { $ace.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { '' } }
+  $currentLine = @($allowAces | Where-Object { (& $sidForAce $_) -eq $currentSid -and (([int]$_.FileSystemRights -band [int][System.Security.AccessControl.FileSystemRights]::FullControl) -eq [int][System.Security.AccessControl.FileSystemRights]::FullControl) })
+  $systemLine = @($allowAces | Where-Object { (& $sidForAce $_) -eq $systemSid -and (([int]$_.FileSystemRights -band [int][System.Security.AccessControl.FileSystemRights]::FullControl) -eq [int][System.Security.AccessControl.FileSystemRights]::FullControl) })
+  $systemPrincipalLine = @($allowAces | Where-Object { (& $sidForAce $_) -eq $systemSid })
+  $unexpected = @($allowAces | Where-Object { (& $sidForAce $_) -notin @($currentSid, $systemSid) })
   $diagnostic = [ordered]@{
-    protected = [bool]($inherited.Count -eq 0)
+    protected = [bool]$acl.AreAccessRulesProtected
     currentAccountAllowed = [bool]($currentLine.Count -gt 0)
     systemAllowed = [bool]($systemLine.Count -gt 0)
     systemAceSeen = [bool]($systemPrincipalLine.Count -gt 0)
