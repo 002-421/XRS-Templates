@@ -31,10 +31,14 @@ jobs:
         env:
           XRS_WINDOWS_INTEGRATION: '1'
         run: node --test --test-name-pattern="Windows command launcher" tests/setup-windows.integration.test.cjs
-      - name: Run Windows PowerShell and ACL integration test
+      - name: Run icacls ACL application test
         env:
           XRS_WINDOWS_INTEGRATION: '1'
-        run: node --test --test-name-pattern="PowerShell executes" tests/setup-windows.integration.test.cjs
+        run: node --test --test-name-pattern="icacls applies" tests/setup-windows.integration.test.cjs
+      - name: Run PowerShell ACL verification test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="PowerShell Get-Acl confirms" tests/setup-windows.integration.test.cjs
       - name: Run missing USB-media integration test
         env:
           XRS_WINDOWS_INTEGRATION: '1'

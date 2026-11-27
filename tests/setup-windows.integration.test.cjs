@@ -27,14 +27,23 @@ test('Windows command launcher runs preflight without authenticating or provisio
   assert.match(result.stdout, /GitHub API не вызывался; ключи и Secrets не создавались/i);
 });
 
-test('PowerShell executes and private-directory ACL grants only current account and SYSTEM', windowsOnly, async () => {
+test('icacls applies a protected ACL on a temporary directory', windowsOnly, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-fixture-'));
+  try {
+    privateDirectoryAcl(directory);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('PowerShell Get-Acl confirms only current account and SYSTEM are allowed', windowsOnly, async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-check-'));
   try {
     privateDirectoryAcl(directory);
     const escaped = directory.replaceAll("'", "''");
     const check = powershell(`$ErrorActionPreference='Stop'; $acl=Get-Acl -LiteralPath '${escaped}'; $user=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $allowed=@($user,'S-1-5-18'); $sids=@($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }); $bad=@($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $allowed }); if ($acl.AreAccessRulesProtected -and $sids -contains $user -and $sids -contains 'S-1-5-18' -and $bad.Count -eq 0) { 'XRS_ACL_OK' } else { exit 4 }`);
-    assert.equal(check.status, 0, check.stderr);
-    assert.match(check.stdout, /XRS_ACL_OK/);
+    assert.equal(check.status, 0, `PowerShell failed (${check.status}): ${check.stderr || check.stdout}`);
+    assert.match(check.stdout, /XRS_ACL_OK/, `ACL validation did not report success: ${check.stdout}`);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
