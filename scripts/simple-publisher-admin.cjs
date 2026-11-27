@@ -11,7 +11,7 @@ async function handleEnvelope(envelope,publisher=new SimplePublisher()){
    default:p.fail('ADMIN_COMMAND');
   }
   return {protocolVersion:2,operationId:envelope.operationId,status:result.status==='published'?'PUBLISHED':result.status==='up-to-date'?'UP_TO_DATE':result.status==='prepared'?'PREPARED':'VALIDATED',error:null,result};
- }catch(error){return {protocolVersion:2,operationId:envelope?.operationId??null,status:'FAILED',error:/^[A-Z0-9_]{1,100}$/.test(error.code??'')?error.code:'PUBLICATION_FAILED',result:null};}
+ }catch(error){return {protocolVersion:2,operationId:envelope?.operationId??null,status:'FAILED',error:/^[A-Z0-9_]{1,100}$/.test(error.code??'')?error.code:'PUBLICATION_FAILED',result:null,diagnostic:{phase:/^[a-z-]{1,40}$/.test(error.phase??'')?error.phase:null,httpStatus:Number.isInteger(error.httpStatus)?error.httpStatus:null,requestId:typeof error.requestId==='string'&&/^[A-Za-z0-9:-]{1,100}$/.test(error.requestId)?error.requestId:null,operationId:/^[a-f0-9-]{36}$/.test(error.operationId??'')?error.operationId:null}};}
 }
 if(require.main===module)(async()=>{const chunks=[];let size=0;for await(const chunk of process.stdin){size+=chunk.length;p.check(size<=p.LIMITS.archive+64000,'SIZE');chunks.push(chunk);}let input;try{input=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{p.fail('JSON');}process.stdout.write(JSON.stringify(await handleEnvelope(input))+'\n');})().catch(error=>{process.stdout.write(JSON.stringify({protocolVersion:2,operationId:null,status:'FAILED',error:error.code??'PUBLICATION_FAILED',result:null})+'\n');process.exitCode=1;});
 module.exports={handleEnvelope,SimplePublisher};
