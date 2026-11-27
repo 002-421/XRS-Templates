@@ -11,6 +11,13 @@ const { SetupBlocked, verifyRemovableBackupMedia, setupPreflight, readSnapshot, 
 const fs = require('node:fs/promises');
 const os = require('node:os');
 
+test('GitHub CLI preflight requires the actual token-free JSON auth capability version',()=>{
+ const {checkGhInstalled}=require('../scripts/setup-wizard.cjs');
+ for(const version of ['2.65.0','2.80.0','1.99.0'])assert.throws(()=>checkGhInstalled(()=>`gh version ${version}`),{code:'GH_VERSION_TOO_OLD'});
+ for(const version of ['2.81.0','2.106.0','3.0.0'])assert.doesNotThrow(()=>checkGhInstalled(()=>`gh version ${version}`));
+ assert.throws(()=>checkGhInstalled(()=>{throw Error('synthetic missing CLI');}),{code:'GH_REQUIRED'});
+});
+
 test('setup generates three independent protocol-valid Ed25519 roles', () => {
   const generated = core.makeKeySet();
   protocol.validateRoot(generated.root);

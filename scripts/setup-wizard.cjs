@@ -123,10 +123,11 @@ function readSnapshot({ api = ghJson } = {}) {
   };
 }
 
-function checkGhInstalled() {
+function checkGhInstalled(execute = run) {
   try {
-    const version = run('gh', ['--version'], { code: 'GH_REQUIRED' }).match(/gh version (\d+)\.(\d+)/i);
-    if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && Number(version[2]) < 65)) throw new SetupBlocked('GH_VERSION_TOO_OLD');
+    // auth status --json hosts (without exposing the token) was added in 2.81.
+    const version = execute('gh', ['--version'], { code: 'GH_REQUIRED' }).match(/gh version (\d+)\.(\d+)/i);
+    if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && Number(version[2]) < 81)) throw new SetupBlocked('GH_VERSION_TOO_OLD');
   } catch (error) {
     if (error instanceof SetupBlocked && error.code === 'GH_VERSION_TOO_OLD') throw error;
     throw new SetupBlocked('GH_REQUIRED');
@@ -623,4 +624,4 @@ if (require.main === module) {
   } else runWizard().catch(error => { showBlocker(error); process.exitCode = 1; });
 }
 
-module.exports = { ROOT, LINKS, SetupBlocked, run, gh, ghJson, readSnapshot, authCheck, privateDirectoryAcl, verifyRemovableBackupMedia, recoverUnrecordedKeySetup, provisionEnvironmentSecret, saveState, createTrustRootPullRequest, setupPreflight, runWizard, showBlocker };
+module.exports = { ROOT, LINKS, SetupBlocked, run, gh, ghJson, readSnapshot, authCheck, privateDirectoryAcl, verifyRemovableBackupMedia, recoverUnrecordedKeySetup, provisionEnvironmentSecret, saveState, createTrustRootPullRequest, setupPreflight, runWizard, showBlocker, checkGhInstalled };
