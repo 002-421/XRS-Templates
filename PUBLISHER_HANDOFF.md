@@ -71,3 +71,22 @@ Archived selection without PIN, unchanged old reports, independent rollback,
 revoked revision denial, offline cache and cold restart. Complete Windows CI and
 actual Word exchange validation. Verify production root delivery/revocation. Only
 then request separate permission to enable and release XRS Stable.
+
+## Confirmed owner scope for XRS 0.4.86 (2026-11-27)
+
+The clinic server is not available for this release. GitHub Releases and the
+protected GitHub Actions workflow in this repository are the chosen initial
+catalog distribution and publication platform. During the first release,
+manual publication via the approved GitHub workflow is acceptable; there is
+no requirement to implement direct in-XRS GitHub sign-in or a separately hosted
+publisher in this pull request. This does **not** turn the disabled in-XRS
+Publish control into an operational feature.
+
+This pull request is preparation for owner review only. It does not authorize
+merging, provisioning production signing keys, relaxing branch protection or
+Environment reviews, enabling the production channel, or publishing a catalog.
+After a separately approved merge, the owner must complete protected one-time
+trust setup, confirm the test signing environment, and review the synthetic
+GitHub test publication before production activation. The public root and
+private signing material remain separate; do not place private keys in source
+or the physician application.
