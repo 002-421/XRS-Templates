@@ -1,5 +1,4 @@
 @echo off
-setlocal
-cd /d "%~dp0"
-node scripts\activate-stable.cjs
-if errorlevel 1 exit /b 1
+echo This legacy signing-provisioning command is retired.
+echo Use XRS - Upload templates - administrative PIN.
+exit /b 1

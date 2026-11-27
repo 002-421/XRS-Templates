@@ -613,7 +613,8 @@ async function runWizard({ platform = process.platform, env = process.env, input
   } finally { prompts.close(); }
 }
 
-if (require.main === module) {
+if (require.main === module && !process.argv.includes('--preflight-only')) { console.error('LEGACY_SIGNED_SETUP_RETIRED: use Setup-XRS-Templates.cmd'); process.exitCode=1; }
+else if (require.main === module) {
   process.stdout.write('XRS-Templates Setup Wizard — защищённая первоначальная настройка GitHub.\n');
   process.stdout.write('Ключи создаются только после вашей явной команды и никогда не выводятся.\n');
   if (process.argv.includes('--preflight-only')) {

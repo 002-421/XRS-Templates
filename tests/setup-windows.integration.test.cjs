@@ -27,7 +27,7 @@ test('Windows command launcher runs preflight without authenticating or provisio
     cwd: path.resolve(__dirname, '..'), encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /PASS: Windows runner, Node\.js 24, GitHub CLI и Git доступны/i);
+  assert.match(result.stdout, /PASS: Windows runner, Node\.js 24, GitHub CLI доступны/i);
   assert.match(result.stdout, /GitHub API не вызывался; ключи и Secrets не создавались/i);
 });
 
