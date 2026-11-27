@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 const protocol = require('./template-protocol.cjs');
+const { OWNER_ID } = require('./publication-request.cjs');
 
 const OWNER = '002-421';
 const REPOSITORY = `${OWNER}/XRS-Templates`;
@@ -52,9 +53,9 @@ function makeKeySet({ now = Date.now(), generateKeyPair = crypto.generateKeyPair
 function validateSnapshot(snapshot) {
   const blockers = [];
   if (!snapshot || typeof snapshot !== 'object') return ['github.api.no_snapshot'];
-  // OWNER is an organization, not the login of the human using gh. Repository
-  // administration is the permission boundary for this setup operation.
+  // Simplified Publishing v1 is provisioned only by the single approved owner.
   if (typeof snapshot.authenticatedUser !== 'string' || snapshot.authenticatedUser.length === 0) blockers.push('github.auth.user_unavailable');
+  if (snapshot.authenticatedUser !== OWNER || snapshot.authenticatedUserId !== OWNER_ID) blockers.push('github.auth.owner_required');
   if (snapshot.repositoryAdmin !== true) blockers.push('github.repo.admin_required');
   if (snapshot.branchProtectionReadable !== true) blockers.push('github.protection.unreadable');
   else {

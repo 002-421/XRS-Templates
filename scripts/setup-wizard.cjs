@@ -7,6 +7,8 @@ const { spawnSync } = require('node:child_process');
 const readline = require('node:readline/promises');
 const core = require('./lib/setup-core.cjs');
 const protocol = require('./lib/template-protocol.cjs');
+const { createGh, verifyCredentialStatus } = require('./lib/github-publisher.cjs');
+const { OWNER_ID } = require('./lib/publication-request.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const REPOSITORY = core.REPOSITORY;
@@ -108,6 +110,7 @@ function readSnapshot({ api = ghJson } = {}) {
   }
   return {
     authenticatedUser: user.login,
+    authenticatedUserId: user.id,
     repositoryAdmin: repository.permissions?.admin === true,
     branchProtectionReadable,
     branchProtection,
@@ -123,7 +126,7 @@ function readSnapshot({ api = ghJson } = {}) {
 function checkGhInstalled() {
   try {
     const version = run('gh', ['--version'], { code: 'GH_REQUIRED' }).match(/gh version (\d+)\.(\d+)/i);
-    if (!version || Number(version[1]) < 2 || Number(version[2]) < 40) throw new SetupBlocked('GH_VERSION_TOO_OLD');
+    if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && Number(version[2]) < 65)) throw new SetupBlocked('GH_VERSION_TOO_OLD');
   } catch (error) {
     if (error instanceof SetupBlocked && error.code === 'GH_VERSION_TOO_OLD') throw error;
     throw new SetupBlocked('GH_REQUIRED');
@@ -364,6 +367,8 @@ function showBlocker(error, output = process.stdout) {
   if (error.code === 'WINDOWS_11_REQUIRED') output.write('Этот мастер запускается только в Windows 11.\n');
   if (error.code === 'BACKUP_MUST_BE_SEPARATE_REMOVABLE_MEDIA') output.write('Root backup разрешён только на отдельном USB/SD/MMC-носителе, физически отличном от системного диска. Подключите носитель и повторите запуск.\n');
   if (error.code === 'PRIVATE_ACL_VERIFY_FAILED') output.write('Проверка ACL выявила недопустимые права или файловую систему без поддержки ACL. Используйте NTFS и папку только с доступом владельца и SYSTEM.\n');
+  if (error.code === 'SECURE_OWNER_LOGIN_REQUIRED') output.write('Войдите как 002-421 через официальный gh auth login --hostname github.com --web. Авторизация должна храниться в Windows Credential Manager; открытый hosts.yml не допускается.\n');
+  if (error.code === 'ENVIRONMENT_CREDENTIAL_FORBIDDEN') output.write('Запустите мастер без GH_TOKEN/GITHUB_TOKEN: используются только защищённые credentials владельца из Windows Credential Manager.\n');
 }
 
 async function createTrustRootPullRequest(root, state, stateFile, output = process.stdout) {
@@ -446,12 +451,16 @@ async function runWizard({ platform = process.platform, env = process.env, input
     const login = spawnSync('gh', ['auth', 'login', '--hostname', 'github.com', '--web'], { stdio: 'inherit', windowsHide: false });
     if (login.error || login.status !== 0) throw new SetupBlocked('GITHUB_LOGIN_FAILED');
   }
+  // gh can fall back to plaintext hosts.yml; only its keyring source is accepted.
+  const ghClient = createGh({ env });
+  verifyCredentialStatus(await ghClient.status(), { platform, env });
   let snapshot;
   try { snapshot = readSnapshot(); }
   catch (error) {
     if (error instanceof SetupBlocked) throw new SetupBlocked('GITHUB_API_PERMISSION_OR_NETWORK', LINKS.branches);
     throw error;
   }
+  if (snapshot.authenticatedUser !== core.OWNER || snapshot.authenticatedUserId !== OWNER_ID) throw new SetupBlocked('PUBLISHER_IDENTITY');
   output.write(`GitHub-аккаунт: ${snapshot.authenticatedUser}; доступ администратора к ${REPOSITORY}: ${snapshot.repositoryAdmin ? 'есть' : 'нет'}.\n`);
   const prompts = createPrompts(input, output);
   try {

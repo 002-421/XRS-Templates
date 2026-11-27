@@ -81,9 +81,9 @@ test('GitHub secret transfer uses stdin and never puts private material in argv 
   assert.throws(() => core.githubSecretArgs('catalog-root-recovery'), { message: 'INVALID_SIGNING_ENVIRONMENT' });
 });
 
-test('GitHub protection checks fail closed and accept an authorized org admin', () => {
+test('GitHub protection checks fail closed and accept only the authorized single owner', () => {
   const snapshot = {
-    authenticatedUser: 'ksv1977', repositoryAdmin: true, branchProtectionReadable: true,
+    authenticatedUser: '002-421', authenticatedUserId: 210672295, repositoryAdmin: true, branchProtectionReadable: true,
     branchProtection: {
       required_pull_request_reviews: { required_approving_review_count: 1 },
       required_status_checks: { contexts: ['validate'] }, enforce_admins: { enabled: true },
@@ -92,6 +92,7 @@ test('GitHub protection checks fail closed and accept an authorized org admin', 
     existingTestSecret: false, existingStableSecret: false,
   };
   assert.deepEqual(core.validateSnapshot(snapshot), []);
+  assert.ok(core.validateSnapshot({ ...snapshot, authenticatedUserId: 123 }).includes('github.auth.owner_required'));
   assert.ok(core.validateSnapshot({ ...snapshot, branchProtectionReadable: false }).includes('github.protection.unreadable'));
   assert.ok(core.validateSnapshot({ ...snapshot, repositoryAdmin: false }).includes('github.repo.admin_required'));
   assert.ok(core.validateSnapshot({ ...snapshot, environments: { ...snapshot.environments, 'catalog-stable': { readable: false } } }).includes('github.environment.catalog-stable.unreadable_or_missing'));
@@ -105,7 +106,7 @@ test('GitHub API fixture covers allowed access, HTTP 403, and incomplete environ
   };
   const fixture = (args) => {
     const route = args[0];
-    if (route === '/user') return { login: 'fixture-admin' };
+    if (route === '/user') return { login: '002-421', id: 210672295 };
     if (route === '/repos/002-421/XRS-Templates') return { permissions: { admin: true } };
     if (route.endsWith('/branches/main/protection')) return protection;
     if (route.endsWith('/actions/variables')) return { variables: [] };
@@ -117,7 +118,7 @@ test('GitHub API fixture covers allowed access, HTTP 403, and incomplete environ
     throw new Error('UNEXPECTED_FIXTURE_ROUTE');
   };
   const allowed = readSnapshot({ api: fixture });
-  assert.equal(allowed.authenticatedUser, 'fixture-admin');
+  assert.equal(allowed.authenticatedUser, '002-421');
   assert.equal(allowed.repositoryAdmin, true);
   assert.equal(allowed.publicRoot, null);
   assert.deepEqual(core.validateSnapshot(allowed), []);

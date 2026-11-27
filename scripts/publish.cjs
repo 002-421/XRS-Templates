@@ -4,15 +4,25 @@ const fs=require('node:fs/promises'),path=require('node:path');
 const p=require('./lib/template-protocol.cjs');
 const {schemas,loadSources,validateProposal}=require('./validate.cjs');
 const {applyPublishedSources}=require('./current-sources.cjs');
+const requests=require('./lib/publication-request.cjs');
 const ROOT=path.resolve(__dirname,'..');
 async function main(){
  const channel=process.env.CATALOG_CHANNEL;p.check(['stable','test'].includes(channel),'CHANNEL');p.check(process.env.GITHUB_REF==='refs/heads/main'&&process.env.GITHUB_REPOSITORY==='002-421/XRS-Templates','PUBLICATION_REF');p.check(process.env.MEDICAL_APPROVAL==='true','APPROVAL_REQUIRED');
  const trust=p.parse(await fs.readFile(path.join(ROOT,'trust/root.json')));p.validateRoot(trust);p.check(trust.roles.root.keyIds.every(id=>!trust.roles.stable.keyIds.includes(id)&&!trust.roles.test.keyIds.includes(id)),'ROOT_KEY_MUST_BE_OFFLINE');p.check(trust.roles.stable.keyIds.every(id=>!trust.roles.test.keyIds.includes(id)),'CHANNEL_KEY_SEPARATION');
  const key=process.env.TEMPLATE_SIGNING_PRIVATE_KEY;p.check(key,'SIGNING_SECRET_MISSING');const signature=p.sign({probe:true},key);p.check(trust.roles[channel].keyIds.includes(signature.keyId),'KEY');p.check(!trust.roles.root.keyIds.includes(signature.keyId),'ROOT_KEY_MUST_BE_OFFLINE');
  const loaded=await loadSources(),baseline=loaded.baseline,ajv=await schemas();let sources=loaded.sources,previous=null;const previousFile=path.join(ROOT,'previous-manifest.json');try{const restored=await applyPublishedSources(await fs.readFile(previousFile),trust,channel,sources,baseline);sources=restored.sources;previous=restored.manifest;}catch(e){if(e.code!=='ENOENT')throw e;}
- const bootstrap=process.env.BOOTSTRAP_CATALOG==='true';p.check(!bootstrap||!previous,'CATALOG_ALREADY_EXISTS');const names=bootstrap?[]:String(process.env.PROPOSAL_FILE??'').split(',').map(s=>s.trim());p.check(bootstrap||names.length>0&&names.length<=50&&names.every(name=>/^[A-Za-z0-9_.-]+\.xrsproposal$/.test(name))&&new Set(names).size===names.length,'PROPOSAL_PATH');
+ const bootstrap=process.env.BOOTSTRAP_CATALOG==='true';p.check(!bootstrap||!previous,'CATALOG_ALREADY_EXISTS');
+ let request=null;
+ if(process.env.REQUEST_ID||process.env.REQUEST_COMMIT||process.env.REQUEST_SHA256){
+  p.check(!bootstrap&&!process.env.PROPOSAL_FILE,'REQUEST_INPUT_CONFLICT');
+  const raw=await fs.readFile(path.join(ROOT,'publication-request.json'));p.check(p.sha256(raw)===process.env.REQUEST_SHA256,'REQUEST_HASH');request=requests.validateRequest(p.parse(raw),{channel});
+  p.check(request.requestId===process.env.REQUEST_ID&&requests.COMMIT.test(process.env.REQUEST_COMMIT),'REQUEST_BINDING');
+  requests.bindCatalog(request,previous?await fs.readFile(previousFile):null);
+ }
+ const names=bootstrap||request?[]:String(process.env.PROPOSAL_FILE??'').split(',').map(s=>s.trim());p.check(bootstrap||request||names.length>0&&names.length<=50&&names.every(name=>/^[A-Za-z0-9_.-]+\.xrsproposal$/.test(name))&&new Set(names).size===names.length,'PROPOSAL_PATH');
  const approval=p.parse(await fs.readFile(path.join(ROOT,'approval-record.json')));p.check(approval.runId===process.env.GITHUB_RUN_ID&&approval.channel===channel&&/^github:[A-Za-z0-9-]+$/.test(approval.approvedBy),'ENVIRONMENT_APPROVAL_REQUIRED');
- const proposals=[];for(const name of names){const proposal=await validateProposal(await fs.readFile(path.join(ROOT,'incoming',name)),sources,baseline,ajv);p.check(proposal.channel===channel,'CHANNEL');proposals.push(proposal);}p.check(new Set(proposals.map(row=>row.template.id)).size===proposals.length,'DUPLICATE_ID');if(channel==='stable')p.check(process.env.WORKING_CATALOG_APPROVAL==='true','STABLE_CONTENT_APPROVAL_REQUIRED');
+ if(request)p.check(approval.approvedBy==='github:'+requests.OWNER&&approval.requestId===request.requestId&&approval.requestCommit===process.env.REQUEST_COMMIT&&approval.requestSha256===process.env.REQUEST_SHA256&&approval.workflowSha===process.env.GITHUB_SHA,'APPROVAL_REQUEST_BINDING');
+ const proposals=[];for(const row of request?request.proposals:names){const raw=request?p.bytes(row):await fs.readFile(path.join(ROOT,'incoming',row));const proposal=await validateProposal(raw,sources,baseline,ajv);p.check(proposal.channel===channel,'CHANNEL');proposals.push(proposal);}p.check(new Set(proposals.map(row=>row.template.id)).size===proposals.length,'DUPLICATE_ID');if(channel==='stable')p.check(process.env.WORKING_CATALOG_APPROVAL==='true','STABLE_CONTENT_APPROVAL_REQUIRED');
  const next=previous?previous.catalogVersion.split('.').map(Number):[1,0,0];if(previous)next[2]++;const catalogVersion=next.join('.'),sequence=(previous?.sequence??0)+1,tag=`${channel==='test'?'test-':''}catalog-v${catalogVersion}`;
  const entries=new Map((previous?.packages??[]).map(e=>[e.templateId,e])),files=new Map(),revisions=new Map((previous?.revisions??previous?.packages?.map(e=>({...e,status:e.action==='remove'?'Revoked':'Active',publishedAt:previous.publishedAt,approvedBy:'legacy-signed'}))??[]).map(r=>[r.templateId+'@'+r.templateVersion,r]));let added=0,updated=0,minimum=previous?.minimumXrsVersion??'0.4.84';
  for(const proposal of proposals){const t=proposal.template,action=t.retired?'remove':proposal.baseVersion==='0.0.0'?'add':'update',raw=p.makePackage(t,[key],action),name=`${t.id}-${t.templateVersion}.xrszip`;if(action==='add')added++;else updated++;if(p.compare(t.minimumXrsVersion,minimum)>0)minimum=t.minimumXrsVersion;

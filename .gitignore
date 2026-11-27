@@ -5,3 +5,4 @@ previous-manifest.json
 *.key
 .env
 approval-record.json
+publication-request.json
