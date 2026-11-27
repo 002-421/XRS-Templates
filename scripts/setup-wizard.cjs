@@ -60,19 +60,19 @@ function authCheck() {
   return true;
 }
 
-function readSnapshot() {
-  const user = ghJson(['/user']);
-  const repository = ghJson([`/repos/${REPOSITORY}`]);
+function readSnapshot({ api = ghJson } = {}) {
+  const user = api(['/user']);
+  const repository = api([`/repos/${REPOSITORY}`]);
   let branchProtection;
   let branchProtectionReadable = true;
-  try { branchProtection = ghJson([`/repos/${REPOSITORY}/branches/main/protection`]); }
+  try { branchProtection = api([`/repos/${REPOSITORY}/branches/main/protection`]); }
   catch { branchProtectionReadable = false; }
 
   const environments = {};
   for (const name of core.ENVIRONMENTS) {
     try {
-      const env = ghJson([`/repos/${REPOSITORY}/environments/${name}`]);
-      const policies = ghJson([`/repos/${REPOSITORY}/environments/${name}/deployment-branch-policies`]);
+      const env = api([`/repos/${REPOSITORY}/environments/${name}`]);
+      const policies = api([`/repos/${REPOSITORY}/environments/${name}/deployment-branch-policies`]);
       const reviewers = (env.protection_rules ?? [])
         .filter(rule => rule.type === 'required_reviewers')
         .flatMap(rule => rule.reviewers ?? []);
@@ -85,19 +85,19 @@ function readSnapshot() {
   }
 
   let variablesResponse;
-  try { variablesResponse = ghJson([`/repos/${REPOSITORY}/actions/variables`]); }
+  try { variablesResponse = api([`/repos/${REPOSITORY}/actions/variables`]); }
   catch { throw new SetupBlocked('ACTIONS_VARIABLES_READ_FAILED', LINKS.variables); }
   const variableValues = new Map((variablesResponse.variables ?? []).map(item => [item.name, item.value]));
   const secrets = {};
   for (const env of ['catalog-test', 'catalog-stable']) {
     let response;
-    try { response = ghJson([`/repos/${REPOSITORY}/environments/${env}/secrets`]); }
+    try { response = api([`/repos/${REPOSITORY}/environments/${env}/secrets`]); }
     catch { throw new SetupBlocked(`ENVIRONMENT_SECRETS_READ_FAILED_${env.toUpperCase().replaceAll('-', '_')}`, LINKS.secrets); }
     secrets[env] = (response.secrets ?? []).some(item => item.name === core.SECRET_NAME);
   }
   let publicRoot = null;
   try {
-    const response = ghJson([`/repos/${REPOSITORY}/contents/trust/root.json?ref=main`]);
+    const response = api([`/repos/${REPOSITORY}/contents/trust/root.json?ref=main`]);
     publicRoot = Buffer.from(response.content, 'base64').toString('utf8');
   } catch (error) {
     if (!(error instanceof SetupBlocked)) throw error;
@@ -140,9 +140,16 @@ function checkGitInstalled() {
   }
 }
 
-function privateDirectoryAcl(directory) {
-  const account = run('whoami', [], { code: 'WINDOWS_ACCOUNT_UNKNOWN' });
-  run('icacls', [directory, '/inheritance:r', '/grant:r', `${account}:(OI)(CI)F`, '/grant:r', '*S-1-5-18:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
+function setupPreflight({ platform = process.platform, release = os.release(), nodeMajor = Number(process.versions.node.split('.')[0]), checkTools = true } = {}) {
+  if (platform !== 'win32' || Number((release.split('.')[2] ?? 0)) < 22000) throw new SetupBlocked('WINDOWS_11_REQUIRED');
+  if (nodeMajor < 24) throw new SetupBlocked('NODE_24_REQUIRED');
+  if (checkTools) { checkGhInstalled(); checkGitInstalled(); }
+  return { windows11: true, nodeMajor, toolsChecked: checkTools };
+}
+
+function privateDirectoryAcl(directory, runCommand = run) {
+  const account = runCommand('whoami', [], { code: 'WINDOWS_ACCOUNT_UNKNOWN' });
+  runCommand('icacls', [directory, '/inheritance:r', '/grant:r', `${account}:(OI)(CI)F`, '/grant:r', '*S-1-5-18:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
 }
 
 function verifyRemovableBackupMedia(keyDirectory, backupDirectory, spawn = spawnSync) {
@@ -170,6 +177,46 @@ async function removeLocalSigningKey(directory, role) {
   const file = path.join(directory, `${role}-signing.pem`);
   try { await fs.unlink(file); }
   catch (error) { if (error.code !== 'ENOENT') throw new SetupBlocked(`LOCAL_${role.toUpperCase()}_KEY_CLEANUP_FAILED`); }
+}
+
+async function provisionEnvironmentSecret({ environment, role, field, state, stateFile, paths, testPem, stablePem, spawn = spawnSync, prompts, output = process.stdout, persist = saveState }) {
+  const exists = await core.secretListHas(spawn, environment);
+  if (state[field] && exists) {
+    await removeLocalSigningKey(paths.keyDirectory, role);
+    return { uploaded: true, resumed: true };
+  }
+  if (state[field] && !exists) throw new SetupBlocked(`UPLOADED_${environment.toUpperCase().replaceAll('-', '_')}_SECRET_MISSING`, LINKS.secrets);
+
+  const pem = role === 'test' ? testPem : stablePem;
+  const expectedId = state.keyIds[role];
+  const pendingMatches = state.pendingSecretUpload?.environment === environment && state.pendingSecretUpload?.keyId === expectedId;
+  if (exists && !pendingMatches) throw new SetupBlocked(`SECRET_ALREADY_EXISTS_${environment.toUpperCase().replaceAll('-', '_')}`, LINKS.secrets);
+  if (pendingMatches) {
+    const resume = await prompts.ask(`В GitHub уже виден секрет, передача которого была прервана. Повторно передать тот же ключ ${expectedId.slice(0, 12)} в ${environment}? Напишите RESUME SECRET: `);
+    if (resume !== 'RESUME SECRET') throw new SetupBlocked(`SECRET_RESUME_CONFIRMATION_REQUIRED_${environment.toUpperCase().replaceAll('-', '_')}`, LINKS.secrets);
+  } else {
+    const ok = await prompts.ask(`Передать ${role} private key в Environment ${environment} через GitHub CLI (stdin, без файла передачи)? Напишите YES: `);
+    if (ok !== 'YES') throw new SetupBlocked(`OWNER_CONFIRMATION_REQUIRED_${environment.toUpperCase().replaceAll('-', '_')}`);
+    state.pendingSecretUpload = { environment, keyId: expectedId };
+    await persist(stateFile, state);
+  }
+
+  try { core.setEnvironmentSecret(spawn, environment, pem); }
+  catch (error) {
+    output.write(`Автоматическая передача секрета не прошла. Проверьте доступ к Actions Secrets: ${LINKS.secrets}\n`);
+    output.write('Если GitHub запрещает API-запись, владелец может выполнить локально безопасную передачу без вывода ключа:\n');
+    const secretPath = path.join(paths.keyDirectory, role === 'test' ? 'test-signing.pem' : 'stable-signing.pem').replaceAll("'", "''");
+    output.write(`Get-Content -Raw -LiteralPath '${secretPath}' | gh secret set ${core.SECRET_NAME} --env ${environment} --repo ${REPOSITORY}\n`);
+    throw new SetupBlocked(error.message, LINKS.secrets);
+  }
+  if (!(await core.secretListHas(spawn, environment))) throw new SetupBlocked(`SECRET_NOT_VISIBLE_${environment.toUpperCase().replaceAll('-', '_')}`, LINKS.secrets);
+
+  state[field] = true;
+  state.pendingSecretUpload = null;
+  await persist(stateFile, state);
+  await removeLocalSigningKey(paths.keyDirectory, role);
+  output.write(`Секрет ${core.SECRET_NAME} передан в ${environment}; значение не читается и не отображалось.\n`);
+  return { uploaded: true, resumed: pendingMatches };
 }
 
 async function saveState(file, state) {
@@ -349,10 +396,7 @@ async function createTrustRootPullRequest(root, state, stateFile, output = proce
 }
 
 async function runWizard({ platform = process.platform, env = process.env, input = process.stdin, output = process.stdout, spawn = spawnSync } = {}) {
-  if (platform !== 'win32' || Number((os.release().split('.')[2] ?? 0)) < 22000) throw new SetupBlocked('WINDOWS_11_REQUIRED');
-  if (Number(process.versions.node.split('.')[0]) < 24) throw new SetupBlocked('NODE_24_REQUIRED');
-  checkGhInstalled();
-  checkGitInstalled();
+  setupPreflight({ platform });
   if (!authCheck()) {
     output.write('Войдите через официальный GitHub CLI. Пароль вводится только на GitHub; мастер его не запрашивает.\n');
     const login = spawnSync('gh', ['auth', 'login', '--hostname', 'github.com', '--web'], { stdio: 'inherit', windowsHide: false });
@@ -480,43 +524,9 @@ async function runWizard({ platform = process.platform, env = process.env, input
       ['catalog-test', 'test', 'testSecretUploaded'],
       ['catalog-stable', 'stable', 'stableSecretUploaded'],
     ]) {
-      const exists = await core.secretListHas(spawn, environment);
-      if (state[field] && exists) {
-        await removeLocalSigningKey(paths.keyDirectory, role);
-        if (role === 'test') testPem = '';
-        else stablePem = '';
-        continue;
-      }
-      if (state[field] && !exists) throw new SetupBlocked(`UPLOADED_${environment.toUpperCase().replaceAll('-', '_')}_SECRET_MISSING`, LINKS.secrets);
-      const pem = role === 'test' ? testPem : stablePem;
-      const expectedId = state.keyIds[role];
-      const pendingMatches = state.pendingSecretUpload?.environment === environment && state.pendingSecretUpload?.keyId === expectedId;
-      if (exists && !pendingMatches) throw new SetupBlocked(`SECRET_ALREADY_EXISTS_${environment.toUpperCase().replaceAll('-', '_')}`, LINKS.secrets);
-      if (pendingMatches) {
-        const resume = await prompts.ask(`В GitHub уже виден секрет, передача которого была прервана. Повторно передать тот же ключ ${expectedId.slice(0, 12)} в ${environment}? Напишите RESUME SECRET: `);
-        if (resume !== 'RESUME SECRET') throw new SetupBlocked(`SECRET_RESUME_CONFIRMATION_REQUIRED_${environment.toUpperCase().replaceAll('-', '_')}`, LINKS.secrets);
-      } else {
-        const ok = await prompts.ask(`Передать ${role} private key в Environment ${environment} через GitHub CLI (stdin, без файла передачи)? Напишите YES: `);
-        if (ok !== 'YES') throw new SetupBlocked(`OWNER_CONFIRMATION_REQUIRED_${environment.toUpperCase().replaceAll('-', '_')}`);
-        state.pendingSecretUpload = { environment, keyId: expectedId };
-        await saveState(stateFile, state);
-      }
-      try { core.setEnvironmentSecret(spawn, environment, pem); }
-      catch (error) {
-        output.write(`Автоматическая передача секрета не прошла. Проверьте доступ к Actions Secrets: ${LINKS.secrets}\n`);
-        output.write('Если GitHub запрещает API-запись, владелец может выполнить локально безопасную передачу без вывода ключа:\n');
-        const secretPath = path.join(paths.keyDirectory, role === 'test' ? 'test-signing.pem' : 'stable-signing.pem').replaceAll("'", "''");
-        output.write(`Get-Content -Raw -LiteralPath '${secretPath}' | gh secret set ${core.SECRET_NAME} --env ${environment} --repo ${REPOSITORY}\n`);
-        throw new SetupBlocked(error.message, LINKS.secrets);
-      }
-      if (!(await core.secretListHas(spawn, environment))) throw new SetupBlocked(`SECRET_NOT_VISIBLE_${environment.toUpperCase().replaceAll('-', '_')}`, LINKS.secrets);
-      state[field] = true;
-      state.pendingSecretUpload = null;
-      await saveState(stateFile, state);
-      await removeLocalSigningKey(paths.keyDirectory, role);
+      await provisionEnvironmentSecret({ environment, role, field, state, stateFile, paths, testPem, stablePem, spawn, prompts, output });
       if (role === 'test') testPem = '';
       else stablePem = '';
-      output.write(`Секрет ${core.SECRET_NAME} передан в ${environment}; значение не читается и не отображалось.\n`);
     }
 
     await createTrustRootPullRequest(root, state, stateFile, output);
@@ -539,7 +549,12 @@ async function runWizard({ platform = process.platform, env = process.env, input
 if (require.main === module) {
   process.stdout.write('XRS-Templates Setup Wizard — защищённая первоначальная настройка GitHub.\n');
   process.stdout.write('Ключи создаются только после вашей явной команды и никогда не выводятся.\n');
-  runWizard().catch(error => { showBlocker(error); process.exitCode = 1; });
+  if (process.argv.includes('--preflight-only')) {
+    try {
+      const result = setupPreflight();
+      process.stdout.write(`PASS: Windows runner, Node.js ${result.nodeMajor}, GitHub CLI и Git доступны. GitHub API не вызывался; ключи и Secrets не создавались.\n`);
+    } catch (error) { showBlocker(error); process.exitCode = 1; }
+  } else runWizard().catch(error => { showBlocker(error); process.exitCode = 1; });
 }
 
-module.exports = { ROOT, LINKS, SetupBlocked, run, gh, readSnapshot, authCheck, privateDirectoryAcl, verifyRemovableBackupMedia, saveState, createTrustRootPullRequest, runWizard, showBlocker };
+module.exports = { ROOT, LINKS, SetupBlocked, run, gh, ghJson, readSnapshot, authCheck, privateDirectoryAcl, verifyRemovableBackupMedia, recoverUnrecordedKeySetup, provisionEnvironmentSecret, saveState, createTrustRootPullRequest, setupPreflight, runWizard, showBlocker };
