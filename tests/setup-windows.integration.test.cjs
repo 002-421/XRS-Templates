@@ -40,8 +40,11 @@ test('PowerShell Get-Acl confirms only current account and SYSTEM are allowed', 
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-check-'));
   try {
     privateDirectoryAcl(directory);
-    const escaped = directory.replaceAll("'", "''");
-    const check = powershell(`$ErrorActionPreference='Stop'; $acl=Get-Acl -LiteralPath '${escaped}'; $user=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $allowed=@($user,'S-1-5-18'); $sids=@($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }); $bad=@($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $allowed }); $diag=@{protected=[bool]$acl.AreAccessRulesProtected; currentAccountAllowed=[bool]($sids -contains $user); systemAllowed=[bool]($sids -contains 'S-1-5-18'); unexpectedAllowCount=[int]$bad.Count}; Write-Output ('XRS_ACL_DIAG:' + (ConvertTo-Json -Compress $diag)); if ($diag.protected -and $diag.currentAccountAllowed -and $diag.systemAllowed -and $diag.unexpectedAllowCount -eq 0) { 'XRS_ACL_OK' } else { exit 4 }`);
+    const script = path.resolve(__dirname, '../scripts/verify-windows-acl.ps1');
+    const checkResult = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script, '-Directory', directory], {
+      encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
+    });
+    const check = { status: checkResult.status, stdout: checkResult.stdout ?? '', stderr: checkResult.stderr ?? '' };
     const reportLine = check.stdout.split(/\r?\n/).find(line => line.startsWith('XRS_ACL_DIAG:'));
     let diagnostic = { powershellExitCode: check.status, diagnosticAvailable: false };
     if (reportLine) {
