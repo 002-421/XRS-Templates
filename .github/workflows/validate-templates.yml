@@ -16,3 +16,46 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run validate
+  windows-setup:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run validate
+      - name: Run Windows launcher integration test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="Windows command launcher" tests/setup-windows.integration.test.cjs
+      - name: Run icacls ACL application test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="icacls applies" tests/setup-windows.integration.test.cjs
+      - name: Run PowerShell ACL verification test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="PowerShell ACL verifier confirms" tests/setup-windows.integration.test.cjs
+      - name: Run missing USB-media integration test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="absent removable USB" tests/setup-windows.integration.test.cjs
+      - name: Run Windows path validation test
+        env:
+          XRS_WINDOWS_INTEGRATION: '1'
+        run: node --test --test-name-pattern="Windows path policy" tests/setup-windows.integration.test.cjs
+      - name: Launch Windows setup command in non-provisioning preflight mode
+        shell: cmd
+        run: Setup-XRS-Templates.cmd --preflight-only
+      - name: Report sanitized Windows ACL diagnostic on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path windows-setup-diagnostic.json) {
+            $d = Get-Content -Raw windows-setup-diagnostic.json | ConvertFrom-Json
+            $safe = [ordered]@{ powershellExitCode = $d.powershellExitCode; exitCode = $d.exitCode; powershellError = $d.powershellError; protected = $d.protected; currentAccountAllowed = $d.currentAccountAllowed; systemAllowed = $d.systemAllowed; systemAceSeen = $d.systemAceSeen; systemAceFullCount = $d.systemAceFullCount; unexpectedAllowCount = $d.unexpectedAllowCount; ownerGrant = $d.ownerGrant; systemGrant = $d.systemGrant; diagnosticAvailable = $d.diagnosticAvailable; errorId = $d.errorId; errorCode = $d.errorCode; icaclsApplied = $d.icaclsApplied }
+            Write-Output "::error title=Sanitized Windows ACL diagnostic::$($safe | ConvertTo-Json -Compress)"
+          }
