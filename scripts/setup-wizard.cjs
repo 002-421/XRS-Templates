@@ -153,14 +153,18 @@ function privateDirectoryAcl(directory, runCommand = run) {
   // explicit defaults before granting access to the owner and SYSTEM.
   runCommand('icacls', [directory, '/reset', '/T', '/C'], { code: 'PRIVATE_ACL_RESET_FAILED' });
   runCommand('icacls', [directory, '/inheritance:r', '/T', '/C'], { code: 'PRIVATE_ACL_INHERITANCE_FAILED' });
-  runCommand('icacls', [directory, '/grant:r', `${account}:(OI)(CI)F`, '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
+  const ownerGrantOutput = runCommand('icacls', [directory, '/grant:r', `${account}:(OI)(CI)F`, '/T', '/C'], { code: 'PRIVATE_ACL_FAILED' });
   // Keep SYSTEM's full-control ACE in a separate non-replacing operation;
   // a second /grant:r invocation can leave only the last principal granted.
-  runCommand('icacls', [directory, '/grant', 'NT AUTHORITY\\SYSTEM:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_SYSTEM_GRANT_FAILED' });
-  verifyPrivateDirectoryAcl(directory);
+  const systemGrantOutput = runCommand('icacls', [directory, '/grant', 'NT AUTHORITY\\SYSTEM:(OI)(CI)F', '/T', '/C'], { code: 'PRIVATE_ACL_SYSTEM_GRANT_FAILED' });
+  const summary = value => {
+    const match = /Successfully processed\s+(\d+) files;\s+Failed processing\s+(\d+) files/i.exec(String(value ?? ''));
+    return match ? { processed: Number(match[1]), failed: Number(match[2]) } : null;
+  };
+  verifyPrivateDirectoryAcl(directory, spawnSync, { ownerGrant: summary(ownerGrantOutput), systemGrant: summary(systemGrantOutput) });
 }
 
-function verifyPrivateDirectoryAcl(directory, spawn = spawnSync) {
+function verifyPrivateDirectoryAcl(directory, spawn = spawnSync, grantResults = {}) {
   const script = path.join(__dirname, 'verify-windows-acl.ps1');
   const result = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script, '-Directory', directory], { encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024 });
   if (result.error || result.status !== 0 || !String(result.stdout ?? '').includes('XRS_ACL_OK')) {
@@ -182,7 +186,7 @@ function verifyPrivateDirectoryAcl(directory, spawn = spawnSync) {
       } catch { diagnostic = { diagnosticAvailable: false }; }
     }
     const error = new SetupBlocked('PRIVATE_ACL_VERIFY_FAILED');
-    error.safeDiagnostic = diagnostic ?? { diagnosticAvailable: false, powershellError: Boolean(result.error), exitCode: Number.isInteger(result.status) ? result.status : null };
+    error.safeDiagnostic = { ...(diagnostic ?? { diagnosticAvailable: false }), ownerGrant: grantResults.ownerGrant ?? null, systemGrant: grantResults.systemGrant ?? null, powershellError: Boolean(result.error), exitCode: Number.isInteger(result.status) ? result.status : null };
     throw error;
   }
   return true;
