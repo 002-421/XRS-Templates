@@ -50,3 +50,9 @@ jobs:
       - name: Launch Windows setup command in non-provisioning preflight mode
         shell: cmd
         run: Setup-XRS-Templates.cmd --preflight-only
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-setup-diagnostics
+          path: windows-setup-diagnostic.json
+          if-no-files-found: ignore

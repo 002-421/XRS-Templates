@@ -41,7 +41,14 @@ test('PowerShell Get-Acl confirms only current account and SYSTEM are allowed', 
   try {
     privateDirectoryAcl(directory);
     const escaped = directory.replaceAll("'", "''");
-    const check = powershell(`$ErrorActionPreference='Stop'; $acl=Get-Acl -LiteralPath '${escaped}'; $user=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $allowed=@($user,'S-1-5-18'); $sids=@($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }); $bad=@($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $allowed }); if ($acl.AreAccessRulesProtected -and $sids -contains $user -and $sids -contains 'S-1-5-18' -and $bad.Count -eq 0) { 'XRS_ACL_OK' } else { exit 4 }`);
+    const check = powershell(`$ErrorActionPreference='Stop'; $acl=Get-Acl -LiteralPath '${escaped}'; $user=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $allowed=@($user,'S-1-5-18'); $sids=@($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }); $bad=@($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $allowed }); $diag=@{protected=[bool]$acl.AreAccessRulesProtected; currentAccountAllowed=[bool]($sids -contains $user); systemAllowed=[bool]($sids -contains 'S-1-5-18'); unexpectedAllowCount=[int]$bad.Count}; Write-Output ('XRS_ACL_DIAG:' + (ConvertTo-Json -Compress $diag)); if ($diag.protected -and $diag.currentAccountAllowed -and $diag.systemAllowed -and $diag.unexpectedAllowCount -eq 0) { 'XRS_ACL_OK' } else { exit 4 }`);
+    const reportLine = check.stdout.split(/\r?\n/).find(line => line.startsWith('XRS_ACL_DIAG:'));
+    let diagnostic = { powershellExitCode: check.status, diagnosticAvailable: false };
+    if (reportLine) {
+      try { diagnostic = { powershellExitCode: check.status, ...JSON.parse(reportLine.slice('XRS_ACL_DIAG:'.length)) }; }
+      catch { diagnostic = { powershellExitCode: check.status, diagnosticAvailable: false }; }
+    }
+    if (process.env.GITHUB_WORKSPACE) await fs.writeFile(path.join(process.env.GITHUB_WORKSPACE, 'windows-setup-diagnostic.json'), JSON.stringify(diagnostic, null, 2));
     assert.equal(check.status, 0, `PowerShell failed (${check.status}): ${check.stderr || check.stdout}`);
     assert.match(check.stdout, /XRS_ACL_OK/, `ACL validation did not report success: ${check.stdout}`);
   } finally {
