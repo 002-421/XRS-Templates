@@ -7,7 +7,8 @@ async function fixture(){
  const gh={status:async()=>({hosts:{'github.com':[{active:true,state:'success',login:'002-421',tokenSource:'keyring'}]}}),api:async(method,endpoint,body)=>{
   calls.push({method,endpoint});if(deny)throw Object.assign(Error('GITHUB_FORBIDDEN'),{code:'GITHUB_FORBIDDEN',httpStatus:403});if(endpoint==='/user')return {login:'002-421',id:c.OWNER_ID,type:'User'};const route=endpoint.replace('/repos/'+c.REPOSITORY,'');if(route==='')return {full_name:c.REPOSITORY,permissions:{push:true}};
   if(method==='GET'&&route.startsWith('/releases?'))return releases.map(r=>({...r,assets:r.assets.map(({bytes,...a})=>a)}));
-  if(method==='GET'&&route.startsWith('/releases/tags/')){const r=releases.find(r=>r.tag_name===route.slice('/releases/tags/'.length));if(!r)throw missing();return {...r,assets:r.assets.map(({bytes,...a})=>a)};}
+  if(method==='GET'&&route.startsWith('/releases/tags/')){const r=releases.find(r=>!r.draft&&r.tag_name===route.slice('/releases/tags/'.length));if(!r)throw missing();return {...r,assets:r.assets.map(({bytes,...a})=>a)};}
+  if(method==='GET'&&/^\/releases\/\d+$/.test(route)){const r=releases.find(r=>r.id===Number(route.split('/').at(-1)));if(!r)throw missing();return {...r,assets:r.assets.map(({bytes,...a})=>a)};}
   if(method==='GET'&&route==='/git/ref/heads/main')return {object:{sha:'a'.repeat(40),type:'commit'}};
   if(route.startsWith('/git/ref/tags/')){const row=tags.get(route.slice('/git/ref/tags/'.length));if(!row)throw missing();return row;}
   if(method==='POST'&&route==='/git/tags'){const sha=(++id).toString(16).padStart(40,'0');objects.set(sha,{sha,...body,message:body.message+'\n'});return {sha};}
@@ -16,7 +17,7 @@ async function fixture(){
   if(method==='POST'&&route==='/releases'){const r={id:++id,...body,assets:[]};releases.push(r);return {...r};}
   if(method==='PATCH'&&route.startsWith('/releases/')){const r=releases.find(r=>r.id===Number(route.slice('/releases/'.length)));Object.assign(r,body);if(failAfterPublish){failAfterPublish=false;throw Object.assign(Error('GITHUB_UNAVAILABLE'),{code:'GITHUB_UNAVAILABLE'});}return {...r};}
   throw Error('UNEXPECTED_GITHUB_ROUTE');
- },upload:async(tag,file)=>{const r=releases.find(r=>r.tag_name===tag),name=require('node:path').basename(file);assert.ok(r.draft);assert.ok(!r.assets.some(a=>a.name===name));const bytes=await fs.readFile(file);r.assets.push({name,size:bytes.length,digest:'sha256:'+p.sha256(bytes),bytes});}};
+ },upload:async(tag,file,known)=>{assert.ok(known.id);const r=releases.find(r=>r.id===known.id),name=require('node:path').basename(file);assert.ok(r.draft);assert.ok(!r.assets.some(a=>a.name===name));const bytes=await fs.readFile(file);r.assets.push({name,size:bytes.length,digest:'sha256:'+p.sha256(bytes),bytes});}};
  const download=async url=>{if(url.includes('/latest/download/')){const r=releases.filter(r=>!r.draft).at(-1),asset=r?.assets.find(a=>a.name==='catalog-manifest.json');if(!asset)throw missing();return asset.bytes;}const part=url.slice(c.PREFIX.length),slash=part.indexOf('/'),tag=part.slice(0,slash),name=part.slice(slash+1),release=releases.find(r=>r.tag_name===tag&&!r.draft),asset=release?.assets.find(a=>a.name===name);if(!asset)throw missing();return asset.bytes;};
  const publisher=new SimplePublisher({gh,download,loadSources:async()=>data,platform:'win32',env:{}});
  return {data,publisher,calls,releases,tags,failPublished:()=>{failAfterPublish=true;},deny:()=>{deny=true;}};
@@ -42,3 +43,5 @@ test('catalog ZIP rejects corruption, path traversal, duplicate IDs and incompat
  const asset=f.releases[0].assets.find(a=>a.name==='catalog-manifest.json'),bad=structuredClone(manifest);bad.packages[0].templateSize++;bad.revisions.find(r=>r.templateId===bad.packages[0].templateId).templateSize++;asset.bytes=p.bytes(bad);await assert.rejects(()=>f.publisher.verify(plan.request),/PUBLICATION_BINDING/);
 });
 module.exports={fixture};
+
+test('real GitHub semantics: draft is invisible by tag; failed upload resumes the same release ID without duplicates',async()=>{const f=await fixture(),request=(await f.publisher.prepare(crypto.randomUUID(),[])).request,upload=f.publisher.gh.upload;let failed=false;f.publisher.gh.upload=async(...args)=>{if(!failed){failed=true;throw Object.assign(Error('GITHUB_UNAVAILABLE'),{code:'GITHUB_UNAVAILABLE',httpStatus:503,requestId:'SYNTHETIC:123'});}return upload(...args);};await assert.rejects(f.publisher.publish(request),e=>e.phase==='upload'&&e.httpStatus===503);assert.equal(f.releases.length,1);assert.equal(f.releases[0].assets.length,0);await assert.rejects(f.publisher.api('GET','/releases/tags/xrs-templates-v1.0.0'),e=>e.httpStatus===404);const receipt=await f.publisher.publish(request);assert.equal(receipt.status,'published');assert.equal(f.releases.length,1);assert.equal(f.releases[0].assets.length,2);});
