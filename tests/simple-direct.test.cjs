@@ -39,5 +39,6 @@ test('catalog ZIP rejects corruption, path traversal, duplicate IDs and incompat
  assert.throws(()=>c.manifest(p.bytes({...manifest,minimumXrsVersion:'99.0.0'})),/XRS_VERSION_REQUIRED/);assert.throws(()=>c.manifest(p.bytes({...manifest,packages:[...manifest.packages,manifest.packages[0]]})),/DUPLICATE_ID/);assert.throws(()=>c.packageReader({allowedImages:f.data.baseline.allowedImages})(Buffer.from('broken'),manifest.packages[0]),/PACKAGE_HASH/);
  const unsafe=Buffer.from(archive),offset=unsafe.indexOf(Buffer.from('catalog.json'));unsafe.write('../evil.json',offset,'utf8');assert.throws(()=>p.unzip(unsafe,{catalog:true}),/ZIP_/);
  assert.throws(()=>p.zip({'../evil.json':Buffer.from('{}')},{catalog:true}),/ZIP_PATH/);
+ const asset=f.releases[0].assets.find(a=>a.name==='catalog-manifest.json'),bad=structuredClone(manifest);bad.packages[0].templateSize++;bad.revisions.find(r=>r.templateId===bad.packages[0].templateId).templateSize++;asset.bytes=p.bytes(bad);await assert.rejects(()=>f.publisher.verify(plan.request),/PUBLICATION_BINDING/);
 });
 module.exports={fixture};
