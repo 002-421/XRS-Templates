@@ -1,4 +1,32 @@
+> Исторический документ прежнего подписанного формата. Текущее решение владельца
+> использует прямые GitHub Releases, HTTPS и SHA-256 без Root/Ed25519, USB,
+> provisioning и Environment approval при публикации. Актуальный процесс — README.md.
+> Описанные ниже ключи и flags не являются требованиями штатной работы XRS 0.4.86.
+
 # Protected publisher handoff — owner decision required
+
+## Current full-cycle integration (2026-11-27)
+
+The sections below record earlier decisions. The current owner-approved design
+is one official GitHub login on the owner's Windows computer, credentials only
+in Windows Credential Manager, and subsequent publication from the existing XRS
+administrative editor through versioned, hash-checked local stdio. No VPS or
+broker is required. Environment approval uses the owner's normal authenticated
+API permission; protection is not bypassed. The full client candidate is
+`002-421/-main`, branch `codex/xrs-template-publishing-full-086`.
+
+Root-chain delivery, historical package authorization, exact signed publication
+receipts, replay reconciliation and safe cleanup are implemented and tested with
+temporary keys. This does not mean the production trust ceremony or a real
+GitHub Test publication has occurred. Follow the single integrated RC acceptance
+checklist in the client; do not request separate intermediate user acceptance.
+
+`Activate-Stable-After-Acceptance.cmd` is an explicit, owner-only action after
+that acceptance and separately authorized live Test delivery to two Windows
+clients. It checks protected setup, the pinned setup anchor/chain, public root,
+real signed Test packages and the owner's typed confirmation before writing the
+Stable flag. XRS and CI never call it. Do not run it during development or send
+credentials/private keys through chat. No activation is authorized by this PR.
 
 This document describes a reviewable procedure. It does not provision a service,
 generate working keys, grant permissions, enable a channel or publish a catalog.

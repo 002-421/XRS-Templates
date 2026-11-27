@@ -1,0 +1,81 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { privateDirectoryAcl, verifyRemovableBackupMedia, SetupBlocked } = require('../scripts/setup-wizard.cjs');
+const core = require('../scripts/lib/setup-core.cjs');
+
+const windowsOnly = { skip: process.platform !== 'win32' || process.env.XRS_WINDOWS_INTEGRATION !== '1' };
+
+function powershell(script) {
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
+  });
+  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+async function writeDiagnostic(value) {
+  if (process.env.GITHUB_WORKSPACE) await fs.writeFile(path.join(process.env.GITHUB_WORKSPACE, 'windows-setup-diagnostic.json'), JSON.stringify(value, null, 2));
+}
+
+test('Windows command launcher runs preflight without authenticating or provisioning', windowsOnly, () => {
+  const result = spawnSync('cmd.exe', ['/d', '/s', '/c', 'Setup-XRS-Templates.cmd --preflight-only'], {
+    cwd: path.resolve(__dirname, '..'), encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /PASS: Windows runner, Node\.js 24, GitHub CLI доступны/i);
+  assert.match(result.stdout, /GitHub API не вызывался; ключи и Secrets не создавались/i);
+});
+
+test('icacls applies a protected ACL on a temporary directory', windowsOnly, async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-fixture-'));
+  try {
+    try { privateDirectoryAcl(directory); }
+    catch (error) { await writeDiagnostic({ ...(error.safeDiagnostic ?? {}), errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
+    await writeDiagnostic({ icaclsApplied: true });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('PowerShell ACL verifier confirms only current account and SYSTEM are allowed', windowsOnly, async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'xrs-setup-acl-check-'));
+  try {
+    try { privateDirectoryAcl(directory); }
+    catch (error) { await writeDiagnostic({ ...(error.safeDiagnostic ?? {}), errorCode: error.code ?? 'UNKNOWN_ACL_ERROR' }); throw error; }
+    const script = path.resolve(__dirname, '../scripts/verify-windows-acl.ps1');
+    const checkResult = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script, '-Directory', directory], {
+      encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024,
+    });
+    const check = { status: checkResult.status, stdout: checkResult.stdout ?? '', stderr: checkResult.stderr ?? '' };
+    const reportLine = check.stdout.split(/\r?\n/).find(line => line.startsWith('XRS_ACL_DIAG:'));
+    let diagnostic = { powershellExitCode: check.status, diagnosticAvailable: false };
+    if (reportLine) {
+      try { diagnostic = { powershellExitCode: check.status, ...JSON.parse(reportLine.slice('XRS_ACL_DIAG:'.length)) }; }
+      catch { diagnostic = { powershellExitCode: check.status, diagnosticAvailable: false }; }
+    }
+    await writeDiagnostic(diagnostic);
+    assert.equal(check.status, 0, `PowerShell failed (${check.status}): ${check.stderr || check.stdout}`);
+    assert.match(check.stdout, /XRS_ACL_OK/, `ACL validation did not report success: ${check.stdout}`);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('absent removable USB volume is rejected by the real PowerShell disk check', windowsOnly, () => {
+  const freeDrive = powershell("$used=@(Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name }); $free=([char[]](68..90) | Where-Object { $_.ToString() -notin $used } | Select-Object -First 1); if ($free) { $free } else { exit 5 }");
+  assert.equal(freeDrive.status, 0, freeDrive.stderr);
+  const drive = freeDrive.stdout.trim().at(0);
+  assert.ok(drive);
+  assert.throws(() => verifyRemovableBackupMedia(os.tmpdir(), `${drive}:\\xrs-no-device`), error => error instanceof SetupBlocked && error.code === 'BACKUP_MUST_BE_SEPARATE_REMOVABLE_MEDIA');
+});
+
+test('Windows path policy rejects the repository, same-volume backup, and drive root', windowsOnly, () => {
+  assert.throws(() => core.validateKeyDirectory({ repositoryRoot: 'C:\\repo', keyDirectory: 'C:\\repo\\keys', backupDirectory: 'E:\\backup', platform: 'win32', pathApi: path.win32 }), { message: 'KEYS_MUST_BE_OUTSIDE_REPOSITORY' });
+  assert.throws(() => core.validateKeyDirectory({ repositoryRoot: 'C:\\repo', keyDirectory: 'C:\\keys', backupDirectory: 'C:\\backup', platform: 'win32', pathApi: path.win32 }), { message: 'BACKUP_MUST_BE_ON_DIFFERENT_DRIVE' });
+  assert.throws(() => core.validateKeyDirectory({ repositoryRoot: 'C:\\repo', keyDirectory: 'C:\\keys', backupDirectory: 'E:\\', platform: 'win32', pathApi: path.win32 }), { message: 'BACKUP_NEEDS_DEDICATED_DIRECTORY' });
+});

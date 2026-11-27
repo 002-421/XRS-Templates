@@ -1,3 +1,8 @@
+> Исторический документ прежнего подписанного формата. Текущее решение владельца
+> использует прямые GitHub Releases, HTTPS и SHA-256 без Root/Ed25519, USB,
+> provisioning и Environment approval при публикации. Актуальный процесс — README.md.
+> Описанные ниже ключи и flags не являются требованиями штатной работы XRS 0.4.86.
+
 # Trust and recovery model
 
 The package contains only canonical UTF-8 JSON in an uncompressed ZIP_STORED

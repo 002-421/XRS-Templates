@@ -196,6 +196,45 @@
           }
         }
       }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "requestSha256",
+        "previousVersion",
+        "previousManifestSha256",
+        "workflowSha",
+        "workflowRunId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9-]{36}$"
+        },
+        "requestSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "previousVersion": {
+          "type": "string"
+        },
+        "previousManifestSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workflowSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "workflowRunId": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        }
+      }
     }
   },
   "allOf": [

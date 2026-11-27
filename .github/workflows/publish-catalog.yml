@@ -1,7 +1,17 @@
 name: Publish approved template catalog
+run-name: ${{ inputs.request_id && format('XRS request {0} {1}', inputs.request_id, inputs.request_sha256) || 'XRS catalog publication' }}
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: 'Immutable XRS data request UUID (no PR required)'
+        type: string
+      request_commit:
+        description: 'Exact data-only request commit SHA'
+        type: string
+      request_sha256:
+        description: 'Exact canonical request SHA-256'
+        type: string
       proposal:
         description: 'Approved filenames in incoming/, comma-separated, ending .xrsproposal'
         required: false
@@ -27,6 +37,13 @@ on:
         default: false
 permissions:
   contents: read
+env:
+  REQUEST_ID: ${{ inputs.request_id }}
+  REQUEST_COMMIT: ${{ inputs.request_commit }}
+  REQUEST_SHA256: ${{ inputs.request_sha256 }}
+  CATALOG_CHANNEL: ${{ inputs.channel }}
+  PROPOSAL_FILE: ${{ inputs.proposal }}
+  BOOTSTRAP_CATALOG: ${{ inputs.bootstrap }}
 concurrency:
   group: template-catalog-publication
   cancel-in-progress: false
@@ -43,10 +60,21 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run validate
-      - name: Require provisioned protected environment
+      - name: Require channel-specific provisioning gate
         env:
-          PROVISIONED: ${{ vars.TEMPLATE_PUBLICATION_PROVISIONED }}
-        run: test "$PROVISIONED" = 'true'
+          CATALOG_CHANNEL: ${{ inputs.channel }}
+          TEMPLATE_TEST_PUBLICATION_PROVISIONED: ${{ vars.TEMPLATE_TEST_PUBLICATION_PROVISIONED }}
+          TEMPLATE_PUBLICATION_PROVISIONED: ${{ vars.TEMPLATE_PUBLICATION_PROVISIONED }}
+        run: node scripts/check-provisioning.cjs
+      - name: Fetch previous authenticated catalog for request validation
+        if: inputs.request_id || inputs.request_commit || inputs.request_sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/fetch-previous.cjs
+      - name: Validate immutable request data without signing secrets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/receive-request.cjs
   publish:
     needs: validate
     runs-on: ubuntu-latest
@@ -65,10 +93,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CATALOG_CHANNEL: ${{ inputs.channel }}
         run: node scripts/fetch-previous.cjs
+      - name: Revalidate exact immutable request before signing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/receive-request.cjs
       - name: Verify the Environment approval identity
         env:
           GH_TOKEN: ${{ github.token }}
           CATALOG_CHANNEL: ${{ inputs.channel }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_COMMIT: ${{ inputs.request_commit }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
         run: node scripts/approval-record.cjs
       - name: Sign approved data
         env:
