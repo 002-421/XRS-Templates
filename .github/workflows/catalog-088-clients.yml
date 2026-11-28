@@ -1,11 +1,8 @@
 name: XRS 0.4.88 official catalog two-client acceptance
 on:
-  workflow_dispatch:
-    inputs:
-      candidate_sha:
-        description: Exact XRS candidate SHA with successful full Windows validation
-        required: true
-        type: string
+  push:
+    branches:
+      - codex/xrs-088-publishing-recovery
 permissions:
   contents: read
 concurrency:
@@ -19,7 +16,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Require successful Windows validation for the exact candidate
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_SHA: 04c68ecba34ca1ec7e7a69bbb0904c8c0014c033
         run: |
           node -e "(async()=>{const sha=process.env.CANDIDATE_SHA;if(!/^[a-f0-9]{40}$/.test(sha))throw Error('CANDIDATE_SHA');const r=await fetch('https://api.github.com/repos/002-421/-main/actions/workflows/xrs-088-validation.yml/runs?per_page=100');if(!r.ok)throw Error('VALIDATION_LOOKUP');const data=await r.json();if(!data.workflow_runs.some(x=>x.head_sha===sha&&x.conclusion==='success'))throw Error('WINDOWS_VALIDATION_REQUIRED');})().catch(e=>{console.error(e.message);process.exitCode=1;})"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
