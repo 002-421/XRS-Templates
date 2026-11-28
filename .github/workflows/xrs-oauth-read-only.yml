@@ -38,7 +38,7 @@ jobs:
           XRS_LIVE_OAUTH_READ_ONLY: '1'
           XRS_PROBE_APP_ROOT: ${{ github.workspace }}/reviewed-app/x-ray-report-studio
         run: |
-          & ./reviewed-app/x-ray-report-studio/node_modules/electron/dist/electron.exe ./scripts/read-only-oauth-probe.cjs
+          node ./scripts/run-read-only-oauth-probe.cjs
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
