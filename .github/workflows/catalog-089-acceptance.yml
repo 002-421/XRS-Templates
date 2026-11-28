@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       publish_catalog:
-        description: 'Execute the owner-authorized synthetic test and official immutable catalog 1.0.0 publication'
+        description: 'Publish only an isolated synthetic prerelease and verify two clients; leave production catalog 1.0.0 unchanged'
         required: true
         type: boolean
         default: false
@@ -50,7 +50,7 @@ jobs:
         working-directory: reviewed-app/x-ray-report-studio
       - run: npm run desktop:install
         working-directory: reviewed-app/x-ray-report-studio
-      - name: Real OAuth and isolated prerelease; production 1.0.0 stays unchanged
+      - name: Real OAuth, isolated synthetic prerelease and two clients; Stable catalog unchanged
         shell: pwsh
         env:
           XRS_REAL_CATALOG_ACCEPTANCE: '1'
