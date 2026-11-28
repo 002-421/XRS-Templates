@@ -39,5 +39,14 @@ rolled back and reinstalled. Sentinels for documents, local templates and
 settings must survive. Offline persistence uses an explicit simulated network
 failure after real public installation and is reported separately.
 
+The first real run published both the test prerelease and official 1.0.0 with
+the exact seeded artifact hashes. Its final assertion incorrectly compared the
+113-template content hash to `state.templates`, which contains only local
+overrides; on a fresh catalog installation the correct full set is
+`state.activeTemplates`. This affected the test assertion after installation,
+not the downloaded assets. `catalog-088-clients.yml` reruns the production
+downloader against the already-published public 1.0.0 on two clean Windows
+stores, without repeating OAuth or publishing assets.
+
 These are isolated Windows downloader instances, not the unavailable owner's
 physical computer. No XRS application Stable release or user RC is published.

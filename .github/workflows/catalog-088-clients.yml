@@ -1,0 +1,56 @@
+name: XRS 0.4.88 official catalog two-client acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact XRS candidate SHA with successful full Windows validation
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: xrs-catalog-1.0.0-client-acceptance
+  cancel-in-progress: false
+jobs:
+  official-catalog-clients:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require successful Windows validation for the exact candidate
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          node -e "(async()=>{const sha=process.env.CANDIDATE_SHA;if(!/^[a-f0-9]{40}$/.test(sha))throw Error('CANDIDATE_SHA');const r=await fetch('https://api.github.com/repos/002-421/-main/actions/workflows/xrs-088-validation.yml/runs?per_page=100');if(!r.ok)throw Error('VALIDATION_LOOKUP');const data=await r.json();if(!data.workflow_runs.some(x=>x.head_sha===sha&&x.conclusion==='success'))throw Error('WINDOWS_VALIDATION_REQUIRED');})().catch(e=>{console.error(e.message);process.exitCode=1;})"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: 002-421/-main
+          ref: ${{ inputs.candidate_sha }}
+          path: reviewed-app
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            reviewed-app/x-ray-report-studio/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run validate
+      - run: npm ci
+        working-directory: reviewed-app/x-ray-report-studio
+      - run: npm run desktop:install
+        working-directory: reviewed-app/x-ray-report-studio
+      - name: Freeze and audit the exact official 0.4.87 catalog
+        run: node scripts/audit-official-088-source.cjs reviewed-app test-output/official-source catalog-bootstrap/1.0.0.json
+      - name: Download and install the actual public 1.0.0 catalog in two production updater stores
+        env:
+          XRS_APP_ROOT: ${{ github.workspace }}/reviewed-app/x-ray-report-studio
+          XRS_OFFICIAL_SOURCE: ${{ github.workspace }}/test-output/official-source
+        run: node scripts/verify-official-catalog-clients.cjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: XRS-0.4.88-official-catalog-two-client-proof
+          path: test-output/catalog-088/official-client-result.json
+          if-no-files-found: ignore
