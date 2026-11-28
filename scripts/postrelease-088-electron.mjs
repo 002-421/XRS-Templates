@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import {_electron} from 'playwright-core';
 import {unzipSync} from 'fflate';
 import {prepareInlineDocument} from '../src/inline-fields.ts';
+process.on('uncaughtException',error=>{const scalar=value=>['string','number','boolean'].includes(typeof value)?String(value).slice(0,160):undefined;console.error('::error title=XRS public update preflight::'+JSON.stringify({name:error.name,message:String(error.message).split('\n')[0].slice(0,200),actual:scalar(error.actual),expected:scalar(error.expected)}));process.exit(1);});
 assert.equal(process.platform,'win32');
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const manifestUrl='https://raw.githubusercontent.com/002-421/-main/codex/mri-report-studio/x-ray-report-studio/downloads/latest.json';
