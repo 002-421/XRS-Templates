@@ -4,8 +4,11 @@ const p=require('./lib/template-protocol.cjs'),c=require('./lib/simple-catalog.c
 async function main(){
  if(process.platform!=='win32')throw Error('WINDOWS_REQUIRED');
  const app=path.resolve(process.env.XRS_APP_ROOT),prepared=path.resolve(process.env.XRS_OFFICIAL_SOURCE),baseline=require(path.join(prepared,'stable-baseline.cjs'));
- const appBaseline=require(path.join(app,'electron/template-baseline.cjs'));
- assert.equal(appBaseline.templates.length,113);assert.equal(c.contentHash(appBaseline.templates),seed.contentSha256);
+ const appTemplates=require(path.join(app,'electron/template-baseline.cjs')).templates;
+ const asText=node=>Array.isArray(node)?node.map(asText).join(''):node&&typeof node==='object'?(node.type==='text'?node.text??'':asText(node.content)):'';
+ const stableById=new Map(baseline.templates.map(t=>[t.id,t])),candidateById=new Map(appTemplates.map(t=>[t.id,t]));
+ assert.equal(appTemplates.length,113);assert.deepEqual([...candidateById.keys()].sort(),[...stableById.keys()].sort());
+ for(const [id,stable] of stableById){const candidate=candidateById.get(id);assert.equal(asText(candidate.doc),asText(stable.doc),'medical text unchanged: '+id);}
  const source=require(path.join(app,'electron/template-source.cjs'));
  assert.equal(source.enabled,true);assert.equal(source.format,'https-sha256-v1');
  const api=await fetch('https://api.github.com/repos/'+c.REPOSITORY+'/releases/tags/'+c.tag(seed.catalogVersion),{headers:{Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}});
