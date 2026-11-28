@@ -1,0 +1,48 @@
+name: XRS real OAuth read-only Windows probe
+on:
+  push:
+    branches: [codex/xrs-088-publishing-recovery]
+  workflow_dispatch:
+    inputs:
+      real_oauth:
+        description: 'Owner is available to enter the official Device Flow code; read-only API only'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  read-only-owner-oauth:
+    if: (github.event_name == 'workflow_dispatch' && inputs.real_oauth == true) || contains(github.event.head_commit.message, '[xrs-live-read-only-oauth]')
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: 002-421/-main
+          ref: e329eb5b34e9bdf63200aedbacea110516c7d7f9
+          path: reviewed-app
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: reviewed-app/x-ray-report-studio/package-lock.json
+      - run: npm ci
+        working-directory: reviewed-app/x-ray-report-studio
+      - run: npm run desktop:install
+        working-directory: reviewed-app/x-ray-report-studio
+      - name: Official Device Flow and real Windows DPAPI, read-only GitHub API
+        shell: pwsh
+        env:
+          XRS_LIVE_OAUTH_READ_ONLY: '1'
+          XRS_PROBE_APP_ROOT: ${{ github.workspace }}/reviewed-app/x-ray-report-studio
+        run: |
+          & ./reviewed-app/x-ray-report-studio/node_modules/electron/dist/electron.exe ./scripts/read-only-oauth-probe.cjs
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Read-only-OAuth-public-diagnostics
+          path: test-output/read-only-oauth.json
+          if-no-files-found: ignore
