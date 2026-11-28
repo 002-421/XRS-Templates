@@ -1,0 +1,39 @@
+name: XRS 0.4.88 production updater verification
+on:
+  push:
+    branches: [codex/xrs-088-publishing-recovery]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-update:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: 002-421/-main
+          ref: 04c68ecba34ca1ec7e7a69bbb0904c8c0014c033
+          path: reviewed-app
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci
+        working-directory: reviewed-app/x-ray-report-studio
+      - run: npm run desktop:install
+        working-directory: reviewed-app/x-ray-report-studio
+      - name: Verify actual public archive and production HTTPS updater from 0.4.87
+        shell: pwsh
+        run: |
+          Copy-Item scripts/postrelease-088-electron.mjs reviewed-app/x-ray-report-studio/tests/postrelease-088-electron.mjs
+          Set-Location reviewed-app/x-ray-report-studio
+          node tests/postrelease-088-electron.mjs
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: XRS-0.4.88-production-update-result
+          path: reviewed-app/x-ray-report-studio/test-output/postrelease-088/result.json
+          if-no-files-found: ignore
