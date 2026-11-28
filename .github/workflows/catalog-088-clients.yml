@@ -24,6 +24,7 @@ jobs:
           repository: 002-421/-main
           ref: 04c68ecba34ca1ec7e7a69bbb0904c8c0014c033
           path: reviewed-app
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
