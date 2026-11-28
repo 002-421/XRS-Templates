@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: 002-421/-main
-          ref: ${{ inputs.candidate_sha }}
+          ref: 04c68ecba34ca1ec7e7a69bbb0904c8c0014c033
           path: reviewed-app
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
