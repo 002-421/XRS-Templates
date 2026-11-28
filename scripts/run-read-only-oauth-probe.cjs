@@ -1,13 +1,13 @@
 'use strict';
 const {spawn}=require('node:child_process'),fs=require('node:fs/promises'),path=require('node:path'),readline=require('node:readline');
-async function runProbe({command,args,reportFile,cwd=process.cwd(),log=console.log}){
+async function runProbe({command,args,reportFile,cwd=process.cwd(),log=console.log,expectedScope='real OAuth, Windows DPAPI, read-only GitHub API'}){
  await fs.rm(reportFile,{force:true});
  const child=spawn(command,args,{cwd,env:process.env,stdio:['ignore','pipe','pipe']});
  for(const stream of [child.stdout,child.stderr])readline.createInterface({input:stream}).on('line',line=>{if(/^::(?:notice|error) title=XRS /.test(line))log(line);});
  const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
  if(code!==0)throw Object.assign(Error(),{code:'PROBE_PROCESS_FAILED'});
  let report;try{report=JSON.parse(await fs.readFile(reportFile,'utf8'));}catch{throw Object.assign(Error(),{code:'PROBE_RESULT_MISSING'});}
- if(report.status!=='PASS'||report.connected!==true||!Array.isArray(report.oauthScopes)||report.scope!=='real OAuth, Windows DPAPI, read-only GitHub API')throw Object.assign(Error(),{code:'PROBE_RESULT_INVALID'});
+ if(report.status!=='PASS'||report.connected!==true||!Array.isArray(report.oauthScopes)||report.scope!==expectedScope)throw Object.assign(Error(),{code:'PROBE_RESULT_INVALID'});
  return report;
 }
 module.exports={runProbe};

@@ -1,0 +1,10 @@
+'use strict';
+const p=require('./template-protocol.cjs'),c=require('./simple-catalog.cjs');
+/** Shared data-only packaging for publication and isolated real-transport tests. */
+function buildArtifacts(request,current,{allowedImages=[],now=Date.now()}={}){
+  const archive=c.makeArchive(request.templates,request.catalogVersion,{allowedImages:allowedImages}),archiveMeta={url:c.archiveUrl(request.catalogVersion),size:archive.length,sha256:p.sha256(archive)},packages=[],revisions=new Map((current?.manifest.revisions??[]).map(r=>[r.templateId+'@'+r.templateVersion,r]));
+  for(const t of request.templates){const old=current?.manifest.packages.find(r=>r.templateId===t.id);let entry=old;if(!old||old.templateSha256!==p.sha256(p.bytes(t))){for(const [key,row]of revisions)if(row.templateId===t.id&&row.status==='Active')revisions.set(key,{...row,status:'Archived'});entry={templateId:t.id,templateVersion:t.templateVersion,action:t.retired?'remove':'update',...archiveMeta,templateSha256:p.sha256(p.bytes(t)),templateSize:p.bytes(t).length,archiveVersion:request.catalogVersion,summary:request.summaries[t.id]??'Первоначальный утверждённый каталог'};revisions.set(t.id+'@'+t.templateVersion,{...entry,status:t.retired?'Revoked':'Active',publishedAt:request.createdAt,approvedBy:'github:002-421'});}packages.push(entry);}
+  const manifest={schemaVersion:3,type:'xrs-https-template-catalog',catalogId:'xrs-medical-templates',catalogVersion:request.catalogVersion,sequence:request.sequence,channel:'stable',minimumXrsVersion:request.templates.reduce((v,t)=>p.compare(v,t.minimumXrsVersion)>=0?v:t.minimumXrsVersion,'0.4.86'),publishedAt:request.createdAt,publisher:{login:'002-421',id:c.OWNER_ID,repository:c.REPOSITORY},publicationId:request.id,previousVersion:request.previousVersion,previousManifestSha256:request.previousManifestSha256,contentSha256:request.contentSha256,archive:archiveMeta,packages,revisions:[...revisions.values()]};const raw=p.bytes(manifest);c.manifest(raw,{now:now});
+ return {archive,raw,manifest};
+}
+module.exports={buildArtifacts};

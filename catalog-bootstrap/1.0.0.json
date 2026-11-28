@@ -1,0 +1,23 @@
+{
+  "catalogVersion": "1.0.0",
+  "sourceCommit": "658b96d19472e7cd87857c655b9dae96bf86383d",
+  "operationId": "b063498e-1094-415b-8d19-fef5345d35a9",
+  "createdAt": "2026-11-28T01:03:11.730Z",
+  "contentSha256": "c2980b1d19661fcb0a738d74ccbe1b7dad4265e6293fa02710051a070ed8c3e2",
+  "requestSha256": "206866e506f009a39b54a42384b01770c20bd81351c05d04429c51e832a6aeb5",
+  "archiveSha256": "3e935bce5522be8ee3fd7527d76125eca0a1d1987751b86153187ab689872b0d",
+  "manifestSha256": "8a22e50defc2c00dcc9e06f520ee0b969dea0e1d7d1cdd6f974553f5b8004f32",
+  "retiredReservation": {
+    "tag": "xrs-templates-v1.0.0",
+    "objectSha": "2a42d1d53f765b467554ae95063f2cf422c03485",
+    "operationId": "1ad3540f-ac67-417d-9286-d8031c15e490",
+    "requestSha256": "b33215e9afb35976b9e60c50aefbea881593ad0b415af3d1da15886ce4bc8640",
+    "draftIds": [
+      460700726,
+      460705617,
+      460705986,
+      460707589,
+      460709077
+    ]
+  }
+}
